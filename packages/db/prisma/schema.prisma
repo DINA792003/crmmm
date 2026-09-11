@@ -1,0 +1,938 @@
+// DCT CRM - Enterprise Multi-Tenant CRM Platform
+// Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// MULTI-TENANT & AUTH
+// ============================================
+
+model Tenant {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  domain        String?
+  logo          String?
+  settings      Json?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users         User[]
+  roles         Role[]
+  profiles      Profile[]
+  permissionSets PermissionSet[]
+  queues        Queue[]
+  auditLogs     AuditLog[]
+  reports       Report[]
+  dashboards    Dashboard[]
+  workflows     Workflow[]
+  automations   Automation[]
+  notifications Notification[]
+  leads         Lead[]
+  contacts      Contact[]
+  accounts      Account[]
+  customers     Customer[]
+  siteVisits    SiteVisit[]
+  opportunities Opportunity[]
+  quotations    Quotation[]
+  approvals     Approval[]
+  bookings      Booking[]
+  payments      Payment[]
+  projects      Project[]
+  units         Unit[]
+  tasks         Task[]
+  followUps     FollowUp[]
+  activities    Activity[]
+  aiConversations AIConversation[]
+
+  @@index([slug])
+}
+
+model User {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  email         String
+  passwordHash  String
+  firstName     String
+  lastName      String
+  phone         String?
+  avatar        String?
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  roles         UserRole[]
+  assignedLeads Lead[]         @relation("LeadOwner")
+  createdLeads  Lead[]         @relation("LeadCreator")
+  assignedOpportunities Opportunity[] @relation("OppOwner")
+  createdOpportunities Opportunity[] @relation("OppCreator")
+  assignedSiteVisits SiteVisit[] @relation("SvAssignee")
+  createdSiteVisits SiteVisit[] @relation("SvCreator")
+  assignedBookings Booking[] @relation("BookingOwner")
+  createdBookings Booking[] @relation("BookingCreator")
+  tasks         Task[]
+  followUps     FollowUp[]
+  activities    Activity[]
+  aiConversations AIConversation[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+}
+
+model Role {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  isSystem      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users         UserRole[]
+  permissionSets PermissionSetRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId])
+}
+
+model Profile {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  permissionSets PermissionSet[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model PermissionSet {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  profileId     String
+  profile       Profile  @relation(fields: [profileId], references: [id])
+  name          String
+  description   String?
+  objectName    String
+  permissions   Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  roles         PermissionSetRole[]
+
+  @@unique([tenantId, profileId, objectName])
+  @@index([tenantId])
+  @@index([objectName])
+}
+
+model PermissionSetRole {
+  id              String        @id @default(cuid())
+  permissionSetId String
+  permissionSet   PermissionSet @relation(fields: [permissionSetId], references: [id])
+  roleId          String
+  role            Role          @relation(fields: [roleId], references: [id])
+  createdAt       DateTime      @default(now())
+
+  @@unique([permissionSetId, roleId])
+}
+
+model Queue {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  type          String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  leads         Lead[]
+  opportunities Opportunity[]
+  siteVisits    SiteVisit[]
+  bookings      Booking[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ============================================
+// CRM CORE
+// ============================================
+
+enum LeadStatus {
+  NEW
+  INCOMING
+  PROSPECT
+  SITE_VISIT_SCHEDULED
+  SITE_VISIT_HAPPENED
+  SALES
+  OPPORTUNITY
+  QUOTATION
+  APPROVAL
+  BOOKING
+  DUPLICATE
+  LOST
+  BOOKED
+}
+
+enum LeadSource {
+  WEBSITE
+  REFERRAL
+  COLD_CALL
+  ADVERTISEMENT
+  WALK_IN
+  PORTAL
+  SOCIAL_MEDIA
+  OTHER
+}
+
+model Lead {
+  id            String     @id @default(cuid())
+  tenantId      String
+  tenant        Tenant     @relation(fields: [tenantId], references: [id])
+  ownerId       String?
+  owner         User?      @relation("LeadOwner", fields: [ownerId], references: [id])
+  creatorId     String
+  creator       User       @relation("LeadCreator", fields: [creatorId], references: [id])
+  queueId       String?
+  queue         Queue?     @relation(fields: [queueId], references: [id])
+  projectId     String?
+  project       Project?   @relation(fields: [projectId], references: [id])
+  
+  firstName     String
+  lastName      String?
+  email         String?
+  phone         String
+  source        LeadSource @default(OTHER)
+  status        LeadStatus @default(NEW)
+  score         Int        @default(0)
+  budget        Float?
+  requirements  String?
+  notes         String?
+  
+  // Duplicate detection
+  duplicateOfId String?
+  duplicateOf   Lead?      @relation("LeadDuplicates", fields: [duplicateOfId], references: [id])
+  duplicates    Lead[]     @relation("LeadDuplicates")
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  contacts      Contact[]
+  customer      Customer?
+  siteVisits    SiteVisit[]
+  opportunities Opportunity[]
+  quotations    Quotation[]
+  bookings      Booking[]
+  tasks         Task[]
+  followUps     FollowUp[]
+  activities    Activity[]
+  auditLogs     AuditLog[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, phone])
+  @@index([tenantId, email])
+}
+
+model Contact {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  leadId        String?
+  lead          Lead?    @relation(fields: [leadId], references: [id])
+  accountId     String?
+  account       Account? @relation(fields: [accountId], references: [id])
+  
+  firstName     String
+  lastName      String?
+  email         String?
+  phone         String
+  title         String?
+  department    String?
+  isPrimary     Boolean  @default(false)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([leadId])
+  @@index([accountId])
+}
+
+model Account {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  name          String
+  industry      String?
+  website       String?
+  phone         String?
+  email         String?
+  address       String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  contacts      Contact[]
+  customers     Customer[]
+
+  @@index([tenantId])
+}
+
+model Customer {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  leadId        String?  @unique
+  lead          Lead?    @relation(fields: [leadId], references: [id])
+  accountId     String?
+  account       Account? @relation(fields: [accountId], references: [id])
+  
+  firstName     String
+  lastName      String?
+  email         String?
+  phone         String
+  address       String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bookings      Booking[]
+  payments      Payment[]
+
+  @@index([tenantId])
+  @@index([leadId])
+}
+
+// ============================================
+// PRESALES & SITE VISITS
+// ============================================
+
+enum SiteVisitStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+  RESCHEDULED
+}
+
+model SiteVisit {
+  id            String           @id @default(cuid())
+  tenantId      String
+  tenant        Tenant           @relation(fields: [tenantId], references: [id])
+  leadId        String
+  lead          Lead             @relation(fields: [leadId], references: [id])
+  projectId     String?
+  project       Project?         @relation(fields: [projectId], references: [id])
+  assigneeId    String?
+  assignee      User?            @relation("SvAssignee", fields: [assigneeId], references: [id])
+  creatorId     String
+  creator       User             @relation("SvCreator", fields: [creatorId], references: [id])
+  queueId       String?
+  queue         Queue?           @relation(fields: [queueId], references: [id])
+  
+  scheduledAt  DateTime
+  completedAt  DateTime?
+  status       SiteVisitStatus  @default(SCHEDULED)
+  feedback     String?
+  rating       Int?
+  notes        String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  activities   Activity[]
+  tasks        Task[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, assigneeId])
+  @@index([leadId])
+}
+
+// ============================================
+// SALES & OPPORTUNITIES
+// ============================================
+
+enum OpportunityStage {
+  PROSPECTING
+  QUALIFICATION
+  NEEDS_ANALYSIS
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+model Opportunity {
+  id            String           @id @default(cuid())
+  tenantId      String
+  tenant        Tenant           @relation(fields: [tenantId], references: [id])
+  leadId        String?
+  lead          Lead?            @relation(fields: [leadId], references: [id])
+  ownerId       String?
+  owner         User?            @relation("OppOwner", fields: [ownerId], references: [id])
+  creatorId     String
+  creator       User             @relation("OppCreator", fields: [creatorId], references: [id])
+  queueId       String?
+  queue         Queue?           @relation(fields: [queueId], references: [id])
+  projectId     String?
+  project       Project?         @relation(fields: [projectId], references: [id])
+  
+  name          String
+  stage         OpportunityStage @default(PROSPECTING)
+  amount        Float?
+  expectedCloseDate DateTime?
+  probability   Int?
+  description   String?
+  lostReason    String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  quotations    Quotation[]
+  bookings      Booking[]
+  activities    Activity[]
+  tasks         Task[]
+  auditLogs     AuditLog[]
+
+  @@index([tenantId])
+  @@index([tenantId, stage])
+  @@index([tenantId, ownerId])
+}
+
+// ============================================
+// QUOTATIONS & APPROVALS
+// ============================================
+
+enum QuotationStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model Quotation {
+  id            String           @id @default(cuid())
+  tenantId      String
+  tenant        Tenant           @relation(fields: [tenantId], references: [id])
+  leadId        String?
+  lead          Lead?            @relation(fields: [leadId], references: [id])
+  opportunityId String?
+  opportunity   Opportunity?     @relation(fields: [opportunityId], references: [id])
+  projectId     String?
+  project       Project?         @relation(fields: [projectId], references: [id])
+  
+  number        String
+  status        QuotationStatus  @default(DRAFT)
+  totalAmount   Float
+  taxAmount     Float?
+  discount      Float?
+  validUntil    DateTime?
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  items         QuotationItem[]
+  approvals     Approval[]
+  bookings      Booking[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([opportunityId])
+}
+
+model QuotationItem {
+  id            String      @id @default(cuid())
+  quotationId   String
+  quotation     Quotation   @relation(fields: [quotationId], references: [id])
+  unitId        String?
+  unit          Unit?       @relation(fields: [unitId], references: [id])
+  description   String
+  quantity      Int         @default(1)
+  unitPrice     Float
+  totalPrice    Float
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([quotationId])
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Approval {
+  id            String         @id @default(cuid())
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  quotationId   String
+  quotation     Quotation      @relation(fields: [quotationId], references: [id])
+  approverId    String
+  status        ApprovalStatus @default(PENDING)
+  comments      String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([tenantId])
+  @@index([quotationId])
+  @@index([approverId])
+}
+
+// ============================================
+// BOOKINGS & FINANCE
+// ============================================
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Booking {
+  id            String         @id @default(cuid())
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  leadId        String?
+  lead          Lead?          @relation(fields: [leadId], references: [id])
+  opportunityId String?
+  opportunity   Opportunity?   @relation(fields: [opportunityId], references: [id])
+  quotationId   String?
+  quotation     Quotation?     @relation(fields: [quotationId], references: [id])
+  projectId     String
+  project       Project        @relation(fields: [projectId], references: [id])
+  unitId        String
+  unit          Unit           @relation(fields: [unitId], references: [id])
+  customerId    String?
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  ownerId       String?
+  owner         User?          @relation("BookingOwner", fields: [ownerId], references: [id])
+  creatorId     String
+  creator       User           @relation("BookingCreator", fields: [creatorId], references: [id])
+  queueId       String?
+  queue         Queue?         @relation(fields: [queueId], references: [id])
+  
+  number        String
+  status        BookingStatus  @default(PENDING)
+  bookingDate   DateTime       @default(now())
+  totalAmount   Float
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  payments      Payment[]
+  activities    Activity[]
+  auditLogs     AuditLog[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([unitId])
+}
+
+enum PaymentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  PARTIAL
+  COMPLETED
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  tenantId      String
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  bookingId     String
+  booking       Booking       @relation(fields: [bookingId], references: [id])
+  customerId    String?
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  
+  amount        Float
+  status        PaymentStatus @default(PENDING)
+  paymentDate   DateTime      @default(now())
+  reference     String?
+  notes         String?
+  verifiedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([bookingId])
+}
+
+// ============================================
+// PROJECTS & UNITS
+// ============================================
+
+enum UnitStatus {
+  AVAILABLE
+  HOLD
+  RESERVED
+  BOOKED
+  SOLD
+  BLOCKED
+}
+
+model Project {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  address       String?
+  city          String?
+  state         String?
+  zipCode       String?
+  totalUnits    Int?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  units         Unit[]
+  leads         Lead[]
+  siteVisits    SiteVisit[]
+  opportunities Opportunity[]
+  quotations    Quotation[]
+  bookings      Booking[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Unit {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id])
+  number        String
+  type          String?
+  floor         Int?
+  area          Float?
+  price         Float?
+  status        UnitStatus @default(AVAILABLE)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  quotationItems QuotationItem[]
+  bookings      Booking[]
+
+  @@unique([tenantId, projectId, number])
+  @@index([tenantId])
+  @@index([tenantId, projectId])
+  @@index([tenantId, status])
+}
+
+// ============================================
+// WORK MANAGEMENT
+// ============================================
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  tenantId      String
+  tenant        Tenant       @relation(fields: [tenantId], references: [id])
+  leadId        String?
+  lead          Lead?        @relation(fields: [leadId], references: [id])
+  siteVisitId   String?
+  siteVisit     SiteVisit?   @relation(fields: [siteVisitId], references: [id])
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+  ownerId       String
+  owner         User         @relation(fields: [ownerId], references: [id])
+  
+  title         String
+  description   String?
+  status        TaskStatus   @default(PENDING)
+  priority      TaskPriority @default(MEDIUM)
+  dueDate       DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, status])
+  @@index([leadId])
+}
+
+model FollowUp {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  leadId        String?
+  lead          Lead?     @relation(fields: [leadId], references: [id])
+  ownerId       String
+  owner         User      @relation(fields: [ownerId], references: [id])
+  
+  title         String
+  description   String?
+  dueDate       DateTime
+  completedAt   DateTime?
+  isCompleted   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, ownerId])
+  @@index([leadId])
+}
+
+// ============================================
+// ACTIVITIES & NOTIFICATIONS
+// ============================================
+
+enum ActivityType {
+  CALL
+  MEETING
+  WHATSAPP
+  EMAIL
+  SITE_VISIT
+  NOTE
+  TASK
+  FOLLOW_UP
+  SYSTEM
+}
+
+model Activity {
+  id            String       @id @default(cuid())
+  tenantId      String
+  tenant        Tenant       @relation(fields: [tenantId], references: [id])
+  leadId        String?
+  lead          Lead?        @relation(fields: [leadId], references: [id])
+  siteVisitId   String?
+  siteVisit     SiteVisit?   @relation(fields: [siteVisitId], references: [id])
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+  bookingId     String?
+  booking       Booking?     @relation(fields: [bookingId], references: [id])
+  userId        String
+  user          User         @relation(fields: [userId], references: [id])
+  
+  type          ActivityType
+  subject       String
+  description   String?
+  dueDate       DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, userId])
+  @@index([leadId])
+  @@index([siteVisitId])
+  @@index([opportunityId])
+  @@index([bookingId])
+}
+
+model Notification {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  
+  title         String
+  message       String
+  type          String
+  referenceId   String?
+  referenceType String?
+  isRead        Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, userId])
+  @@index([tenantId, userId, isRead])
+}
+
+// ============================================
+// WORKFLOWS & AUTOMATIONS
+// ============================================
+
+model Workflow {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  triggerType   String
+  triggerObject String
+  conditions    Json
+  actions       Json
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Automation {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  triggerEvent  String
+  conditions    Json
+  actions       Json
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ============================================
+// REPORTS & DASHBOARDS
+// ============================================
+
+model Report {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  type          String
+  objectName    String
+  columns       Json
+  filters       Json?
+  groupBy       String?
+  sortBy        String?
+  isShared      Boolean   @default(false)
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Dashboard {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  layout        Json
+  isDefault     Boolean   @default(false)
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ============================================
+// AUDIT & AI
+// ============================================
+
+model AuditLog {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
+  leadId        String?
+  lead          Lead?     @relation(fields: [leadId], references: [id])
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+  bookingId     String?
+  booking       Booking?  @relation(fields: [bookingId], references: [id])
+  
+  action        String
+  objectType    String
+  objectId      String?
+  oldValues     Json?
+  newValues     Json?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, userId])
+  @@index([tenantId, objectType])
+  @@index([createdAt])
+}
+
+model AIConversation {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  
+  title         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  messages      AIMessage[]
+
+  @@index([tenantId, userId])
+}
+
+model AIMessage {
+  id              String         @id @default(cuid())
+  conversationId  String
+  conversation    AIConversation @relation(fields: [conversationId], references: [id])
+  
+  role            String
+  content         String
+  toolCalls       Json?
+  toolResults     Json?
+  createdAt       DateTime       @default(now())
+
+  @@index([conversationId])
+}

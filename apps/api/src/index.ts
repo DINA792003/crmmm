@@ -1,0 +1,100 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
+import dotenv from 'dotenv';
+
+import { authRoutes as authRouter } from './routes/auth';
+import { leadRoutes as leadRouter } from './routes/leads';
+import contactRouter from './routes/contacts';
+import accountRouter from './routes/accounts';
+import customerRouter from './routes/customers';
+import siteVisitRouter from './routes/siteVisits';
+import opportunityRouter from './routes/opportunities';
+import quotationRouter from './routes/quotations';
+import bookingRouter from './routes/bookings';
+import paymentRouter from './routes/payments';
+import projectRouter from './routes/projects';
+import unitRouter from './routes/units';
+import { taskRoutes as taskRouter } from './routes/tasks';
+import { followUpRoutes as followUpRouter } from './routes/followUps';
+import { activityRoutes as activityRouter } from './routes/activities';
+import { userRoutes as userRouter } from './routes/users';
+import { roleRoutes as roleRouter } from './routes/roles';
+import reportRouter from './routes/reports';
+import { dashboardRoutes as dashboardRouter } from './routes/dashboards';
+import { searchRoutes as searchRouter } from './routes/search';
+import { analyticsRoutes as analyticsRouter } from './routes/analytics';
+import { aiRoutes as aiRouter } from './routes/ai';
+import { workflowRoutes as workflowRouter } from './routes/workflows';
+import { adminRoutes as adminRouter } from './routes/admin';
+import { auditRoutes as auditRouter } from './routes/audit';
+import { notificationRoutes as notificationRouter } from './routes/notifications';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+app.use(helmet());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  credentials: true,
+}));
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(limiter);
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(morgan('combined'));
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.use('/api/auth', authRouter);
+app.use('/api/leads', leadRouter);
+app.use('/api/contacts', contactRouter);
+app.use('/api/accounts', accountRouter);
+app.use('/api/customers', customerRouter);
+app.use('/api/site-visits', siteVisitRouter);
+app.use('/api/opportunities', opportunityRouter);
+app.use('/api/quotations', quotationRouter);
+app.use('/api/bookings', bookingRouter);
+app.use('/api/payments', paymentRouter);
+app.use('/api/projects', projectRouter);
+app.use('/api/units', unitRouter);
+app.use('/api/tasks', taskRouter);
+app.use('/api/follow-ups', followUpRouter);
+app.use('/api/activities', activityRouter);
+app.use('/api/users', userRouter);
+app.use('/api/roles', roleRouter);
+app.use('/api/reports', reportRouter);
+app.use('/api/dashboards', dashboardRouter);
+app.use('/api/search', searchRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/workflows', workflowRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/audit', auditRouter);
+app.use('/api/notifications', notificationRouter);
+
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ success: false, error: 'Internal server error' });
+});
+
+app.listen(PORT, () => {
+  console.log(`DCT CRM API server running on port ${PORT}`);
+});
+
+export default app;

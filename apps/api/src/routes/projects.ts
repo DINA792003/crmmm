@@ -1,0 +1,195 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { PrismaClient } from '@prisma/client';
+import { authenticate } from '../middleware/auth';
+import { authorize } from '../middleware/authorization';
+import { auditLog } from '../middleware/audit';
+import { ApiResponse, PaginatedResponse } from '../types';
+import { Prisma } from '@prisma/client';
+
+const router = Router();
+const prisma = new PrismaClient();
+
+const projectSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  address: z.string().min(1).max(500),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  country: z.string().max(100).optional(),
+  postalCode: z.string().max(20).optional(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+  status: z.enum(['PLANNING', 'IN_PROGRESS', 'COMPLETED', 'ON_HOLD']).optional(),
+  startDate: z.string().datetime().optional(),
+  expectedEndDate: z.string().datetime().optional(),
+  actualEndDate: z.string().datetime().optional(),
+  totalUnits: z.number().int().min(0).optional(),
+  availableUnits: z.number().int().min(0).optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+const updateProjectSchema = projectSchema.partial();
+
+router.get('/', authenticate, authorize('Project', 'read'), async (req, res) => {
+  try {
+    const { tenantId } = req.user!;
+    const { page = 1, limit = 50, search, status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const where: Prisma.ProjectWhereInput = {
+      tenantId,
+      ...(status && { status: status as any }),
+      ...(search && {
+        OR: [
+          { name: { contains: search as string, mode: 'insensitive' } },
+          { address: { contains: search as string, mode: 'insensitive' } },
+          { city: { contains: search as string, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [projects, total] = await Promise.all([
+      prisma.project.findMany({
+        where,
+        skip,
+        take: Number(limit),
+        orderBy: { [sortBy as string]: sortOrder },
+        include: {
+          _count: { select: { units: true, bookings: true, siteVisits: true } },
+        },
+      }),
+      prisma.project.count({ where }),
+    ]);
+
+    const response: PaginatedResponse<typeof projects[0]> = {
+      success: true,
+      data: projects,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        totalPages: Math.ceil(total / Number(limit)),
+      },
+    };
+
+    res.json(response);
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch projects' });
+  }
+});
+
+router.get('/:id', authenticate, authorize('Project', 'read'), async (req, res) => {
+  try {
+    const { tenantId } = req.user!;
+    const { id } = req.params;
+
+    const project = await prisma.project.findFirst({
+      where: { id, tenantId },
+      include: {
+        units: { 
+          select: { id: true, number: true, type: true, floor: true, price: true, status: true },
+          orderBy: { floor: 'asc' },
+        },
+        _count: { select: { bookings: true, siteVisits: true } },
+      },
+    });
+
+    if (!project) {
+      return res.status(404).json({ success: false, error: 'Project not found' });
+    }
+
+    res.json({ success: true, data: project });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch project' });
+  }
+});
+
+router.post('/', authenticate, authorize('Project', 'create'), async (req, res) => {
+  try {
+    const { tenantId, id: userId } = req.user!;
+    const data = projectSchema.parse(req.body);
+
+    const project = await prisma.project.create({
+      data: {
+        ...data,
+        tenantId,
+        startDate: data.startDate ? new Date(data.startDate) : undefined,
+        expectedEndDate: data.expectedEndDate ? new Date(data.expectedEndDate) : undefined,
+        actualEndDate: data.actualEndDate ? new Date(data.actualEndDate) : undefined,
+      },
+    });
+
+    await auditLog(tenantId, userId, 'CREATE', 'Project', project.id, null, { name: data.name, address: data.address });
+
+    res.status(201).json({ success: true, data: project });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, error: 'Validation failed', details: error.errors });
+    }
+    res.status(500).json({ success: false, error: 'Failed to create project' });
+  }
+});
+
+router.put('/:id', authenticate, authorize('Project', 'edit'), async (req, res) => {
+  try {
+    const { tenantId, id: userId } = req.user!;
+    const { id } = req.params;
+    const data = updateProjectSchema.parse(req.body);
+
+    const existing = await prisma.project.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Project not found' });
+    }
+
+    const updateData: any = { ...data, updatedAt: new Date() };
+    if (data.startDate) updateData.startDate = new Date(data.startDate);
+    if (data.expectedEndDate) updateData.expectedEndDate = new Date(data.expectedEndDate);
+    if (data.actualEndDate) updateData.actualEndDate = new Date(data.actualEndDate);
+
+    const project = await prisma.project.update({
+      where: { id },
+      data: updateData,
+    });
+
+    await auditLog(tenantId, userId, 'UPDATE', 'Project', id, null, data);
+
+    res.json({ success: true, data: project });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, error: 'Validation failed', details: error.errors });
+    }
+    res.status(500).json({ success: false, error: 'Failed to update project' });
+  }
+});
+
+router.delete('/:id', authenticate, authorize('Project', 'delete'), async (req, res) => {
+  try {
+    const { tenantId, id: userId } = req.user!;
+    const { id } = req.params;
+
+    const existing = await prisma.project.findFirst({ where: { id, tenantId } });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Project not found' });
+    }
+
+    const hasUnits = await prisma.unit.count({ where: { projectId: id } });
+    if (hasUnits > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Cannot delete project with existing units. Remove all units first.' 
+      });
+    }
+
+    await prisma.project.delete({ where: { id } });
+
+    await auditLog(tenantId, userId, 'DELETE', 'Project', id, { name: existing.name, address: existing.address }, null);
+
+    res.json({ success: true, data: null });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to delete project' });
+  }
+});
+
+export default router;
