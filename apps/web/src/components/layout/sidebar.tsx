@@ -28,7 +28,10 @@ import {
   Bell,
   Menu,
   X,
+  Database,
+  Boxes,
 } from "lucide-react";
+import { objectManagerApi } from "@/lib/api";
 
 interface NavItem {
   title: string;
@@ -37,7 +40,24 @@ interface NavItem {
   items?: NavItem[];
 }
 
-const navigation: NavItem[] = [
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  user: Users,
+  contact: Contact,
+  building: Building2,
+  "trending-up": TrendingUp,
+  "file-text": FileText,
+  "calendar-check": CalendarCheck,
+  "credit-card": CreditCard,
+  "folder-kanban": FolderKanban,
+  "check-square": CheckSquare,
+  "map-pin": MapPin,
+  home: Building2,
+  activity: TrendingUp,
+  database: Database,
+  boxes: Boxes,
+};
+
+const staticNavigation: NavItem[] = [
   {
     title: "Dashboard",
     href: "/dashboard",
@@ -83,8 +103,12 @@ const navigation: NavItem[] = [
   },
   {
     title: "Admin",
-    href: "/admin",
+    href: "#",
     icon: Settings,
+    items: [
+      { title: "Object Manager", href: "/admin/object-manager", icon: Database },
+      { title: "Settings", href: "/admin", icon: Settings },
+    ],
   },
 ];
 
@@ -96,6 +120,40 @@ interface SidebarProps {
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [expandedItems, setExpandedItems] = React.useState<string[]>([]);
+  const [customObjects, setCustomObjects] = React.useState<NavItem[]>([]);
+
+  React.useEffect(() => {
+    loadCustomObjects();
+  }, []);
+
+  const loadCustomObjects = async () => {
+    try {
+      const res = await objectManagerApi.listObjects();
+      const objects = res.data.data || [];
+      const customItems: NavItem[] = objects
+        .filter((obj: any) => obj.objectType === "custom" && obj.isActive)
+        .map((obj: any) => ({
+          title: obj.pluralLabel,
+          href: `/objects/${obj.name.toLowerCase()}`,
+          icon: iconMap[obj.icon || "database"] || Database,
+        }));
+
+      if (customItems.length > 0) {
+        setCustomObjects([
+          {
+            title: "Custom Objects",
+            href: "#",
+            icon: Boxes,
+            items: customItems,
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Failed to load custom objects:", error);
+    }
+  };
+
+  const navigation = [...staticNavigation, ...customObjects];
 
   const toggleExpanded = (title: string) => {
     setExpandedItems((prev) =>
@@ -107,7 +165,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const isActive = (href: string) => pathname === href;
   const isParentActive = (item: NavItem) =>
-    item.items?.some((child) => pathname === child.href);
+    item.items?.some(
+      (child) => pathname === child.href || pathname.startsWith(child.href + "/")
+    );
 
   return (
     <>
@@ -153,13 +213,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                         <item.icon className="h-4 w-4" />
                         {item.title}
                       </span>
-                      {expandedItems.includes(item.title) ? (
+                      {expandedItems.includes(item.title) || isParentActive(item) ? (
                         <ChevronDown className="h-4 w-4" />
                       ) : (
                         <ChevronRight className="h-4 w-4" />
                       )}
                     </button>
-                    {expandedItems.includes(item.title) && (
+                    {(expandedItems.includes(item.title) || isParentActive(item)) && (
                       <div className="ml-4 mt-1 space-y-1">
                         {item.items.map((child) => (
                           <Link

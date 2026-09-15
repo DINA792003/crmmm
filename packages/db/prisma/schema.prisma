@@ -52,6 +52,8 @@ model Tenant {
   followUps     FollowUp[]
   activities    Activity[]
   aiConversations AIConversation[]
+  objectDefinitions ObjectDefinition[]
+  customRecords CustomRecord[]
 
   @@index([slug])
 }
@@ -86,6 +88,7 @@ model User {
   aiConversations AIConversation[]
   notifications Notification[]
   auditLogs     AuditLog[]
+  ownedCustomRecords CustomRecord[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -104,6 +107,8 @@ model Role {
 
   users         UserRole[]
   permissionSets PermissionSetRole[]
+  objectPerms   ObjectPermission[]
+  fieldPerms    FieldPermission[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -935,4 +940,217 @@ model AIMessage {
   createdAt       DateTime       @default(now())
 
   @@index([conversationId])
+}
+
+// ============================================
+// METADATA - OBJECT DEFINITIONS
+// ============================================
+
+model ObjectDefinition {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  
+  name          String
+  label         String
+  pluralLabel   String
+  description   String?
+  icon          String?
+  objectType    String   @default("custom")
+  isActive      Boolean  @default(true)
+  
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+  
+  fields        FieldDefinition[]
+  layouts       PageLayout[]
+  objectPerms   ObjectPermission[]
+  records       CustomRecord[]
+  
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+}
+
+// ============================================
+// METADATA - FIELD DEFINITIONS
+// ============================================
+
+model FieldDefinition {
+  id            String   @id @default(cuid())
+  tenantId      String
+  objectId      String
+  object        ObjectDefinition @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  
+  name          String
+  label         String
+  fieldType     String
+  description   String?
+  helpText      String?
+  
+  required      Boolean  @default(false)
+  unique        Boolean  @default(false)
+  defaultValue  String?
+  
+  searchable    Boolean  @default(false)
+  sortable      Boolean  @default(false)
+  filterable    Boolean  @default(false)
+  
+  visible       Boolean  @default(true)
+  editable      Boolean  @default(true)
+  isActive      Boolean  @default(true)
+  isSystemField Boolean  @default(false)
+  isCustomField Boolean  @default(true)
+  
+  displayOrder  Int      @default(0)
+  
+  minLength     Int?
+  maxLength     Int?
+  minValue      Float?
+  maxValue      Float?
+  precision     Int?
+  scale         Int?
+  
+  lookupObject  String?
+  lookupField   String?
+  
+  validationRules Json?
+  
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+  
+  picklistValues PicklistValue[]
+  fieldPerms    FieldPermission[]
+  
+  @@unique([objectId, name])
+  @@index([objectId])
+  @@index([tenantId])
+}
+
+// ============================================
+// METADATA - PICKLIST VALUES
+// ============================================
+
+model PicklistValue {
+  id            String   @id @default(cuid())
+  tenantId      String
+  fieldId       String
+  field         FieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  
+  label         String
+  value         String
+  isActive      Boolean  @default(true)
+  isDefault     Boolean  @default(false)
+  displayOrder  Int      @default(0)
+  
+  createdAt     DateTime @default(now())
+  
+  @@unique([fieldId, value])
+  @@index([fieldId])
+}
+
+// ============================================
+// METADATA - PAGE LAYOUTS
+// ============================================
+
+model PageLayout {
+  id            String   @id @default(cuid())
+  tenantId      String
+  objectId      String
+  object        ObjectDefinition @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  
+  name          String
+  isDefault     Boolean  @default(false)
+  sections      Json
+  
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([objectId, name])
+  @@index([objectId])
+}
+
+// ============================================
+// PERMISSIONS - OBJECT LEVEL
+// ============================================
+
+model ObjectPermission {
+  id            String   @id @default(cuid())
+  tenantId      String
+  roleId        String
+  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  objectId      String
+  object        ObjectDefinition @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  
+  canCreate     Boolean  @default(false)
+  canRead       Boolean  @default(false)
+  canUpdate     Boolean  @default(false)
+  canDelete     Boolean  @default(false)
+  viewAll       Boolean  @default(false)
+  modifyAll     Boolean  @default(false)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([roleId, objectId])
+  @@index([roleId])
+  @@index([objectId])
+}
+
+// ============================================
+// PERMISSIONS - FIELD LEVEL
+// ============================================
+
+model FieldPermission {
+  id            String   @id @default(cuid())
+  tenantId      String
+  roleId        String
+  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  fieldId       String
+  field         FieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  
+  canRead       Boolean  @default(true)
+  canEdit       Boolean  @default(true)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([roleId, fieldId])
+  @@index([roleId])
+  @@index([fieldId])
+}
+
+// ============================================
+// CUSTOM OBJECT RECORDS
+// ============================================
+
+model CustomRecord {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  objectId      String
+  object        ObjectDefinition @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  
+  recordNumber  String?
+  ownerId       String?
+  owner         User?    @relation(fields: [ownerId], references: [id])
+  
+  data          Json
+  isActive      Boolean  @default(true)
+  
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([tenantId, objectId, recordNumber])
+  @@index([tenantId, objectId])
+  @@index([tenantId, ownerId])
+  @@index([objectId])
 }

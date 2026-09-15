@@ -403,4 +403,87 @@ export const auditApi = {
     api.get<ApiResponse>('/api/audit/summary', { params }),
 };
 
+// Object Manager API
+export const objectManagerApi = {
+  listObjects: (includeInactive?: boolean) =>
+    api.get<ApiResponse>('/api/objects', { params: { includeInactive } }),
+  getObject: (name: string) =>
+    api.get<ApiResponse>(`/api/objects/${name}`),
+  createObject: (data: any) =>
+    api.post<ApiResponse>('/api/objects', data),
+  updateObject: (name: string, data: any) =>
+    api.put<ApiResponse>(`/api/objects/${name}`, data),
+  deleteObject: (name: string) =>
+    api.delete<ApiResponse>(`/api/objects/${name}`),
+
+  listFields: (objectName: string, params?: { includeSystem?: boolean; includeInactive?: boolean }) =>
+    api.get<ApiResponse>(`/api/fields/${objectName}`, { params }),
+  getField: (objectName: string, fieldId: string) =>
+    api.get<ApiResponse>(`/api/fields/${objectName}/${fieldId}`),
+  createField: (objectName: string, data: any) =>
+    api.post<ApiResponse>(`/api/fields/${objectName}`, data),
+  updateField: (objectName: string, fieldId: string, data: any) =>
+    api.put<ApiResponse>(`/api/fields/${objectName}/${fieldId}`, data),
+  toggleField: (objectName: string, fieldId: string) =>
+    api.patch<ApiResponse>(`/api/fields/${objectName}/${fieldId}/toggle`),
+  reorderFields: (objectName: string, fieldOrders: { id: string; displayOrder: number }[]) =>
+    api.patch<ApiResponse>(`/api/fields/${objectName}/reorder`, { fieldOrders }),
+  deleteField: (objectName: string, fieldId: string) =>
+    api.delete<ApiResponse>(`/api/fields/${objectName}/${fieldId}`),
+
+  listPicklistValues: (fieldId: string) =>
+    api.get<ApiResponse>(`/api/picklist-values/${fieldId}`),
+  createPicklistValue: (fieldId: string, data: any) =>
+    api.post<ApiResponse>(`/api/picklist-values/${fieldId}`, data),
+  updatePicklistValue: (fieldId: string, valueId: string, data: any) =>
+    api.put<ApiResponse>(`/api/picklist-values/${fieldId}/${valueId}`, data),
+  deletePicklistValue: (fieldId: string, valueId: string) =>
+    api.delete<ApiResponse>(`/api/picklist-values/${fieldId}/${valueId}`),
+
+  listLayouts: (objectName: string) =>
+    api.get<ApiResponse>(`/api/layouts/${objectName}`),
+  getDefaultLayout: (objectName: string) =>
+    api.get<ApiResponse>(`/api/layouts/${objectName}/default`),
+  createLayout: (objectName: string, data: any) =>
+    api.post<ApiResponse>(`/api/layouts/${objectName}`, data),
+  updateLayout: (objectName: string, layoutId: string, data: any) =>
+    api.put<ApiResponse>(`/api/layouts/${objectName}/${layoutId}`, data),
+  deleteLayout: (objectName: string, layoutId: string) =>
+    api.delete<ApiResponse>(`/api/layouts/${objectName}/${layoutId}`),
+
+  getObjectPermissions: (objectName: string) =>
+    api.get<ApiResponse>(`/api/object-permissions/${objectName}`),
+  setObjectPermissions: (objectName: string, data: any) =>
+    api.post<ApiResponse>(`/api/object-permissions/${objectName}`, data),
+  bulkSetObjectPermissions: (objectName: string, permissions: any[]) =>
+    api.post<ApiResponse>(`/api/object-permissions/${objectName}/bulk`, { permissions }),
+  deleteObjectPermission: (objectName: string, permissionId: string) =>
+    api.delete<ApiResponse>(`/api/object-permissions/${objectName}/${permissionId}`),
+
+  getFieldPermissions: (objectName: string, roleId?: string) =>
+    api.get<ApiResponse>(`/api/field-permissions/${objectName}`, { params: { roleId } }),
+  setFieldPermissions: (objectName: string, data: any) =>
+    api.post<ApiResponse>(`/api/field-permissions/${objectName}`, data),
+  bulkSetFieldPermissions: (objectName: string, permissions: any[]) =>
+    api.post<ApiResponse>(`/api/field-permissions/${objectName}/bulk`, { permissions }),
+  deleteFieldPermission: (objectName: string, permissionId: string) =>
+    api.delete<ApiResponse>(`/api/field-permissions/${objectName}/${permissionId}`),
+};
+
+// Dynamic Record API
+export const dynamicRecordApi = {
+  list: (objectName: string, params?: Record<string, any>) =>
+    api.get<ApiResponse>(`/api/records/${objectName}`, { params }),
+  get: (objectName: string, id: string) =>
+    api.get<ApiResponse>(`/api/records/${objectName}/${id}`),
+  create: (objectName: string, data: any) =>
+    api.post<ApiResponse>(`/api/records/${objectName}`, data),
+  update: (objectName: string, id: string, data: any) =>
+    api.put<ApiResponse>(`/api/records/${objectName}/${id}`, data),
+  delete: (objectName: string, id: string) =>
+    api.delete<ApiResponse>(`/api/records/${objectName}/${id}`),
+  bulkCreate: (objectName: string, records: any[]) =>
+    api.post<ApiResponse>(`/api/records/${objectName}/bulk`, { records }),
+};
+
 export default api;

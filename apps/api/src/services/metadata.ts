@@ -1,0 +1,306 @@
+import { prisma } from '@dct-crm/db';
+
+const metadataCache = new Map<string, { data: any; expires: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+
+function getCacheKey(tenantId: string, key: string) {
+  return `${tenantId}:${key}`;
+}
+
+function getCached(tenantId: string, key: string) {
+  const cacheKey = getCacheKey(tenantId, key);
+  const cached = metadataCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.data;
+  metadataCache.delete(cacheKey);
+  return null;
+}
+
+function setCache(tenantId: string, key: string, data: any) {
+  const cacheKey = getCacheKey(tenantId, key);
+  metadataCache.set(cacheKey, { data, expires: Date.now() + CACHE_TTL });
+}
+
+export function invalidateCache(tenantId: string, objectName?: string) {
+  if (objectName) {
+    const keys = Array.from(metadataCache.keys()).filter(k => k.startsWith(tenantId));
+    keys.forEach(k => metadataCache.delete(k));
+  } else {
+    const keys = Array.from(metadataCache.keys()).filter(k => k.startsWith(tenantId));
+    keys.forEach(k => metadataCache.delete(k));
+  }
+}
+
+export async function getObjectDefinitions(tenantId: string, includeInactive = false) {
+  const cacheKey = `objects:${includeInactive}`;
+  const cached = getCached(tenantId, cacheKey);
+  if (cached) return cached;
+
+  const where: any = { tenantId };
+  if (!includeInactive) where.isActive = true;
+
+  const objects = await prisma.objectDefinition.findMany({
+    where,
+    include: {
+      _count: { select: { fields: true, records: true } },
+    },
+    orderBy: { label: 'asc' },
+  });
+
+  setCache(tenantId, cacheKey, objects);
+  return objects;
+}
+
+export async function getObjectDefinition(tenantId: string, objectName: string) {
+  const cacheKey = `object:${objectName}`;
+  const cached = getCached(tenantId, cacheKey);
+  if (cached) return cached;
+
+  const object = await prisma.objectDefinition.findFirst({
+    where: { tenantId, name: { equals: objectName, mode: 'insensitive' } },
+    include: {
+      fields: {
+        orderBy: { displayOrder: 'asc' },
+        include: {
+          picklistValues: {
+            where: { isActive: true },
+            orderBy: { displayOrder: 'asc' },
+          },
+        },
+      },
+      layouts: { orderBy: { name: 'asc' } },
+      _count: { select: { records: true } },
+    },
+  });
+
+  if (object) setCache(tenantId, cacheKey, object);
+  return object;
+}
+
+export async function getFieldDefinitions(tenantId: string, objectId: string) {
+  const cacheKey = `fields:${objectId}`;
+  const cached = getCached(tenantId, cacheKey);
+  if (cached) return cached;
+
+  const fields = await prisma.fieldDefinition.findMany({
+    where: { objectId, visible: true },
+    include: {
+      picklistValues: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' },
+      },
+    },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  setCache(tenantId, cacheKey, fields);
+  return fields;
+}
+
+export async function getAllFieldDefinitions(tenantId: string, objectId: string) {
+  const fields = await prisma.fieldDefinition.findMany({
+    where: { objectId },
+    include: {
+      picklistValues: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' },
+      },
+    },
+    orderBy: { displayOrder: 'asc' },
+  });
+  return fields;
+}
+
+export async function getPageLayout(tenantId: string, objectId: string, layoutName?: string) {
+  const where: any = { objectId };
+  if (layoutName) {
+    where.name = layoutName;
+  } else {
+    where.isDefault = true;
+  }
+
+  let layout = await prisma.pageLayout.findFirst({ where });
+
+  if (!layout && !layoutName) {
+    layout = await prisma.pageLayout.findFirst({
+      where: { objectId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  return layout;
+}
+
+export async function getObjectPermissions(tenantId: string, roleId: string, objectId: string) {
+  return prisma.objectPermission.findUnique({
+    where: { roleId_objectId: { roleId, objectId } },
+  });
+}
+
+export async function getFieldPermissions(tenantId: string, roleId: string, objectId: string) {
+  const fields = await prisma.fieldDefinition.findMany({
+    where: { objectId },
+    include: {
+      fieldPerms: {
+        where: { roleId },
+      },
+    },
+  });
+
+  return fields.map(f => ({
+    fieldId: f.id,
+    fieldName: f.name,
+    canRead: f.fieldPerms[0]?.canRead ?? true,
+    canEdit: f.fieldPerms[0]?.canEdit ?? true,
+  }));
+}
+
+export async function getUserObjectPermissions(tenantId: string, userId: string, objectName: string) {
+  const object = await prisma.objectDefinition.findFirst({
+    where: { tenantId, name: { equals: objectName, mode: 'insensitive' } },
+  });
+  if (!object) return null;
+
+  const userRoles = await prisma.userRole.findMany({
+    where: { userId },
+    select: { roleId: true },
+  });
+
+  if (userRoles.length === 0) return null;
+
+  const roleIds = userRoles.map(ur => ur.roleId);
+
+  const permissions = await prisma.objectPermission.findMany({
+    where: {
+      roleId: { in: roleIds },
+      objectId: object.id,
+    },
+  });
+
+  if (permissions.length === 0) return null;
+
+  return {
+    canCreate: permissions.some(p => p.canCreate),
+    canRead: permissions.some(p => p.canRead),
+    canUpdate: permissions.some(p => p.canUpdate),
+    canDelete: permissions.some(p => p.canDelete),
+    viewAll: permissions.some(p => p.viewAll),
+    modifyAll: permissions.some(p => p.modifyAll),
+  };
+}
+
+export async function getUserFieldPermissions(tenantId: string, userId: string, objectId: string) {
+  const userRoles = await prisma.userRole.findMany({
+    where: { userId },
+    select: { roleId: true },
+  });
+
+  if (userRoles.length === 0) return [];
+
+  const roleIds = userRoles.map(ur => ur.roleId);
+
+  const fields = await prisma.fieldDefinition.findMany({
+    where: { objectId },
+    include: {
+      fieldPerms: {
+        where: { roleId: { in: roleIds } },
+      },
+    },
+  });
+
+  return fields.map(f => ({
+    fieldId: f.id,
+    fieldName: f.name,
+    canRead: f.fieldPerms.length > 0 ? f.fieldPerms.some(fp => fp.canRead) : true,
+    canEdit: f.fieldPerms.length > 0 ? f.fieldPerms.some(fp => fp.canEdit) : true,
+  }));
+}
+
+export function validateFieldValue(fieldDef: any, value: any): { valid: boolean; error?: string } {
+  if (value === null || value === undefined || value === '') {
+    if (fieldDef.required) return { valid: false, error: `${fieldDef.label} is required` };
+    return { valid: true };
+  }
+
+  switch (fieldDef.fieldType) {
+    case 'text':
+    case 'longText':
+      if (typeof value !== 'string') return { valid: false, error: `${fieldDef.label} must be text` };
+      break;
+    case 'number':
+      if (isNaN(Number(value))) return { valid: false, error: `${fieldDef.label} must be a number` };
+      break;
+    case 'decimal':
+    case 'currency':
+    case 'percentage':
+      if (isNaN(Number(value))) return { valid: false, error: `${fieldDef.label} must be a valid number` };
+      break;
+    case 'email':
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value)))
+        return { valid: false, error: `${fieldDef.label} must be a valid email` };
+      break;
+    case 'phone':
+      if (!/^[\d\s\-+()]+$/.test(String(value)))
+        return { valid: false, error: `${fieldDef.label} must be a valid phone number` };
+      break;
+    case 'url':
+      try { new URL(String(value)); }
+      catch { return { valid: false, error: `${fieldDef.label} must be a valid URL` }; }
+      break;
+    case 'boolean':
+      if (typeof value !== 'boolean') return { valid: false, error: `${fieldDef.label} must be true or false` };
+      break;
+    case 'date':
+      if (isNaN(Date.parse(String(value)))) return { valid: false, error: `${fieldDef.label} must be a valid date` };
+      break;
+    case 'dateTime':
+      if (isNaN(Date.parse(String(value)))) return { valid: false, error: `${fieldDef.label} must be a valid date/time` };
+      break;
+    case 'picklist':
+      break;
+    case 'multiPicklist':
+      if (!Array.isArray(value)) return { valid: false, error: `${fieldDef.label} must be an array` };
+      break;
+  }
+
+  if (fieldDef.validationRules && typeof fieldDef.validationRules === 'object') {
+    const rules = fieldDef.validationRules as any;
+    if (rules.minLength && String(value).length < rules.minLength)
+      return { valid: false, error: `${fieldDef.label} must be at least ${rules.minLength} characters` };
+    if (rules.maxLength && String(value).length > rules.maxLength)
+      return { valid: false, error: `${fieldDef.label} must be at most ${rules.maxLength} characters` };
+    if (rules.min !== undefined && Number(value) < rules.min)
+      return { valid: false, error: `${fieldDef.label} must be at least ${rules.min}` };
+    if (rules.max !== undefined && Number(value) > rules.max)
+      return { valid: false, error: `${fieldDef.label} must be at most ${rules.max}` };
+    if (rules.pattern && !new RegExp(rules.pattern).test(String(value)))
+      return { valid: false, error: rules.patternMessage || `${fieldDef.label} format is invalid` };
+  }
+
+  return { valid: true };
+}
+
+export async function generateRecordNumber(tenantId: string, objectName: string): Promise<string> {
+  const object = await prisma.objectDefinition.findFirst({
+    where: { tenantId, name: { equals: objectName, mode: 'insensitive' } },
+  });
+  if (!object) throw new Error('Object not found');
+
+  const prefix = objectName.substring(0, 2).toUpperCase();
+  const count = await prisma.customRecord.count({
+    where: { tenantId, objectId: object.id },
+  });
+
+  return `${prefix}-${String(count + 1).padStart(5, '0')}`;
+}
+
+export async function applyFieldDefaults(fieldDefs: any[], data: Record<string, any>): Promise<Record<string, any>> {
+  const result = { ...data };
+  for (const field of fieldDefs) {
+    if (result[field.name] === undefined || result[field.name] === null) {
+      if (field.defaultValue !== null && field.defaultValue !== undefined) {
+        result[field.name] = field.defaultValue;
+      }
+    }
+  }
+  return result;
+}

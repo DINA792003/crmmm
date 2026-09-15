@@ -32,8 +32,15 @@ import { workflowRoutes as workflowRouter } from './routes/workflows';
 import { adminRoutes as adminRouter } from './routes/admin';
 import { auditRoutes as auditRouter } from './routes/audit';
 import { notificationRoutes as notificationRouter } from './routes/notifications';
+import { objectDefinitionRoutes as objectDefinitionRouter } from './routes/objectDefinitions';
+import { fieldDefinitionRoutes as fieldDefinitionRouter } from './routes/fieldDefinitions';
+import { picklistValueRoutes as picklistValueRouter } from './routes/picklistValues';
+import { pageLayoutRoutes as pageLayoutRouter } from './routes/pageLayouts';
+import { objectPermissionRoutes as objectPermissionRouter } from './routes/objectPermissions';
+import { fieldPermissionRoutes as fieldPermissionRouter } from './routes/fieldPermissions';
+import { dynamicCrudRoutes as dynamicCrudRouter } from './routes/dynamicCrud';
 
-dotenv.config();
+dotenv.config({ path: __dirname + '/../.env' });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -87,6 +94,13 @@ app.use('/api/workflows', workflowRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/notifications', notificationRouter);
+app.use('/api/objects', objectDefinitionRouter);
+app.use('/api/fields', fieldDefinitionRouter);
+app.use('/api/picklist-values', picklistValueRouter);
+app.use('/api/layouts', pageLayoutRouter);
+app.use('/api/object-permissions', objectPermissionRouter);
+app.use('/api/field-permissions', fieldPermissionRouter);
+app.use('/api/records', dynamicCrudRouter);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', err);
