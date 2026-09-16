@@ -42,6 +42,8 @@ import {
   History,
   ArrowLeft,
   AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -83,6 +85,16 @@ const RECOVERY_REASONS = [
   "Property Not Suitable",
   "Customer Request",
   "Other",
+];
+
+const LEAD_STATUS_PROGRESSION = [
+  { key: "NEW", label: "New" },
+  { key: "INCOMING", label: "Incoming" },
+  { key: "PROSPECT", label: "Prospect" },
+  { key: "SITE_VISIT_SCHEDULED", label: "Site Visit Scheduled" },
+  { key: "SITE_VISIT_HAPPENED", label: "Site Visit Happened" },
+  { key: "BOOKED", label: "Booked" },
+  { key: "LOST", label: "Lost" },
 ];
 
 interface LeadData {
@@ -341,16 +353,49 @@ export default function LeadDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Lead Status */}
+      {/* Lead Status Progression */}
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium text-muted-foreground">Lead Status</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-3">
-            <Badge variant={STATUS_VARIANT[status] || "outline"} className="text-sm px-3 py-1">
-              {STATUS_LABELS[status] || status}
-            </Badge>
+          <div className="flex items-center gap-1 overflow-x-auto pb-2">
+            {LEAD_STATUS_PROGRESSION.map((step, idx) => {
+              const isCurrent = step.key === status;
+              return (
+                <React.Fragment key={step.key}>
+                  <div className="flex flex-col items-center min-w-[80px]">
+                    <div
+                      className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-medium ${
+                        isCurrent
+                          ? "bg-blue-600 text-white ring-2 ring-blue-200"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {isCurrent ? (
+                        <CheckCircle2 className="h-4 w-4" />
+                      ) : (
+                        <span className="text-[10px]">{idx + 1}</span>
+                      )}
+                    </div>
+                    <span
+                      className={`text-[10px] mt-1 text-center ${
+                        isCurrent ? "font-semibold text-blue-600" : "text-muted-foreground"
+                      }`}
+                    >
+                      {step.label}
+                    </span>
+                  </div>
+                  {idx < LEAD_STATUS_PROGRESSION.length - 1 && (
+                    <div
+                      className={`h-0.5 w-4 mt-[-12px] ${
+                        isCurrent ? "bg-blue-400" : "bg-muted"
+                      }`}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
