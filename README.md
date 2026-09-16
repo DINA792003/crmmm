@@ -1,153 +1,67 @@
-# DCT CRM
+# DCT-CRM
 
-Enterprise Multi-Tenant CRM Platform with AI Intelligence
+Enterprise Multi-Tenant CRM with dynamic object management, role-based access control, and permission-based authorization.
 
 ## Tech Stack
 
-- **Frontend**: Next.js, React, TypeScript, Tailwind CSS
-- **Backend**: Node.js, TypeScript, Express
-- **Database**: PostgreSQL, Prisma ORM
-- **AI Service**: Python, FastAPI, OpenAI
-- **Testing**: Vitest, Playwright, Pytest
+- **Frontend:** Next.js 14 (App Router), shadcn/ui, TypeScript
+- **Backend:** Express.js, TypeScript
+- **Database:** PostgreSQL, Prisma ORM
+- **Auth:** JWT (HTTP-only cookies)
 
 ## Features
 
-- Multi-tenant architecture
-- Role-based access control (RBAC)
-- Complete CRM lifecycle (Lead → Booking)
-- Site visit management
-- Sales pipeline
-- Quotation & approval workflow
-- Booking & payment management
-- Real-time dashboards
-- Enterprise reporting
-- AI-powered analytics
-- Global search
-- Audit logging
+- Multi-tenant architecture with Super Admin
+- Dynamic Object Manager (create custom objects/fields at runtime)
+- Role-based access control (RBAC) with profiles, permission sets, and direct permissions
+- 100 granular permissions across 20 modules
+- Standard Lead fields (27 fields with picklists)
+- Dynamic forms, tables, and detail views
+- CRM workflow engine with status transitions
+- Audit logging and activity tracking
 
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- PostgreSQL 14+
-- Python 3.9+
-
-### Installation
+## Getting Started
 
 ```bash
 # Install dependencies
 npm install
 
-# Setup database
-npm run db:generate
-npm run db:push
-npm run db:seed
+# Set up database
+cd packages/db
+npx prisma db push
+npx ts-node src/seed-super-admin.ts
+npx ts-node src/seed.ts
+npx ts-node src/seed-lead-fields.ts
 
-# Start development servers
+# Start API server
+cd apps/api
+npm run dev
+
+# Start Web server
+cd apps/web
 npm run dev
 ```
 
-### Default Login
+## Login Credentials
 
-- **Email**: admin@dctcrm.com
-- **Password**: password123
+| Email | Password | Role |
+|-------|----------|------|
+| superadmin@dctcrm.com | password123 | Super Admin |
+| admin@dctcrm.com | password123 | Admin |
+| salesmanager@dctcrm.com | password123 | Manager |
+| priya@dctcrm.com | password123 | Sales |
+| amit@dctcrm.com | password123 | Sales |
+| neha@dctcrm.com | password123 | Presales |
+| finance@dctcrm.com | password123 | Finance |
 
 ## Project Structure
 
 ```
 dct-crm/
 ├── apps/
-│   ├── web/          # Next.js frontend
-│   ├── api/          # Node.js backend
-│   └── ai/           # Python AI service
+│   ├── api/          # Express.js backend
+│   └── web/          # Next.js frontend
 ├── packages/
-│   ├── shared/       # Shared types and utilities
-│   └── db/           # Prisma schema and client
-└── prisma/           # Database migrations
+│   ├── db/           # Prisma schema & migrations
+│   └── shared/       # Shared Zod schemas
 ```
-
-## Development
-
-```bash
-# Start all services
-npm run dev
-
-# Start specific service
-npm run dev:web
-npm run dev:api
-npm run dev:ai
-
-# Database
-npm run db:generate
-npm run db:push
-npm run db:seed
-npm run db:studio
-
-# Testing
-npm run test
-npm run test:web
-npm run test:api
-
-# Linting
-npm run lint
-npm run typecheck
-```
-
-## API Documentation
-
-The API runs on `http://localhost:3001` and follows REST conventions.
-
-### Authentication
-
-```bash
-POST /api/auth/login
-POST /api/auth/logout
-GET /api/auth/me
-```
-
-### CRM Endpoints
-
-- `/api/leads` - Lead management
-- `/api/contacts` - Contact management
-- `/api/accounts` - Account management
-- `/api/customers` - Customer management
-- `/api/site-visits` - Site visit scheduling
-- `/api/opportunities` - Sales pipeline
-- `/api/quotations` - Quotation management
-- `/api/bookings` - Booking management
-- `/api/payments` - Payment tracking
-- `/api/projects` - Project management
-- `/api/units` - Unit inventory
-
-### Analytics
-
-- `/api/analytics/leads` - Lead analytics
-- `/api/analytics/bookings` - Booking analytics
-- `/api/analytics/payments` - Payment analytics
-- `/api/analytics/pipeline` - Pipeline analytics
-
-### AI Service
-
-The AI service runs on `http://localhost:8001` and provides natural language query capabilities.
-
-```bash
-POST /api/ai/chat
-{
-  "message": "How many new leads today?",
-  "conversation_id": "optional-conversation-id"
-}
-```
-
-## Security
-
-- Multi-tenant data isolation
-- Role-based access control
-- Server-side authorization
-- Audit logging
-- Secure session management
-- No direct database access from frontend/AI
-
-## License
-
-Proprietary - DCT Real Estate
