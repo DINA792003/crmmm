@@ -276,6 +276,7 @@ router.patch('/:id/approve', authorize('Quotation', 'edit'), async (req: AuthReq
         data: {
           tenantId,
           quotationId: req.params.id,
+          approverId: userId,
           status: 'APPROVED',
           comments,
         },
@@ -317,6 +318,7 @@ router.patch('/:id/reject', authorize('Quotation', 'edit'), async (req: AuthRequ
         data: {
           tenantId,
           quotationId: req.params.id,
+          approverId: userId,
           status: 'REJECTED',
           comments,
         },

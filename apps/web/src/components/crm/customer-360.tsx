@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   User,
   Phone,
@@ -60,6 +62,9 @@ interface Customer360Props {
 }
 
 export function Customer360({ customer, isLoading }: Customer360Props) {
+  const router = useRouter();
+  const { toast } = useToast();
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -99,8 +104,8 @@ export function Customer360({ customer, isLoading }: Customer360Props) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">Edit</Button>
-          <Button>Add Activity</Button>
+          <Button variant="outline" onClick={() => toast({ title: "Edit", description: "Edit customer form coming soon" })}>Edit</Button>
+          <Button onClick={() => toast({ title: "Add Activity", description: "Add activity form coming soon" })}>Add Activity</Button>
         </div>
       </div>
 

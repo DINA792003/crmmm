@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '@dct-crm/db';
 import { loginSchema } from '@dct-crm/shared';
 import { generateToken, setAuthCookie, authenticate, AuthRequest } from '../middleware/auth';
+import { EffectivePermissionService } from '../services/effectivePermissions';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.post('/login', async (req: Request, res: Response) => {
       where: { email, isActive: true },
       include: {
         tenant: { select: { id: true, name: true, slug: true, isActive: true } },
+        profile: { select: { id: true, name: true, description: true, leadStatusAccess: true } },
         roles: {
           include: {
             role: {
@@ -50,16 +52,26 @@ router.post('/login', async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
+      isSuperAdmin: user.isSuperAdmin,
     });
 
     setAuthCookie(res, token);
 
-    const permissions: Record<string, any> = {};
+    const effectivePerms = await EffectivePermissionService.getEffectivePermissions(user.id);
+
+    const hasFullAccess = effectivePerms.some((p) => p.name === 'FULL_SYSTEM_ACCESS');
+    const granularPermissions: Record<string, string[]> = {};
+    for (const perm of effectivePerms) {
+      if (!granularPermissions[perm.module]) granularPermissions[perm.module] = [];
+      granularPermissions[perm.module].push(perm.name);
+    }
+
+    const legacyPermissions: Record<string, any> = {};
     for (const userRole of user.roles) {
       for (const rolePerm of userRole.role.permissionSets) {
         const objName = rolePerm.permissionSet.objectName;
-        if (!permissions[objName]) {
-          permissions[objName] = rolePerm.permissionSet.permissions;
+        if (!legacyPermissions[objName]) {
+          legacyPermissions[objName] = rolePerm.permissionSet.permissions;
         }
       }
     }
@@ -73,10 +85,15 @@ router.post('/login', async (req: Request, res: Response) => {
           firstName: user.firstName,
           lastName: user.lastName,
           avatar: user.avatar,
+          isSuperAdmin: user.isSuperAdmin,
         },
+        profile: user.profile,
         tenant: user.tenant,
         roles: user.roles.map((ur) => ur.role.name),
-        permissions,
+        permissions: legacyPermissions,
+        effectivePermissions: effectivePerms.map((p) => p.name),
+        effectivePermissionsByModule: granularPermissions,
+        hasFullAccess,
       },
     });
   } catch (error: any) {
@@ -104,7 +121,9 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
         lastName: true,
         phone: true,
         avatar: true,
+        isSuperAdmin: true,
         tenant: { select: { id: true, name: true, slug: true } },
+        profile: { select: { id: true, name: true, description: true, leadStatusAccess: true } },
         roles: {
           include: {
             role: {
@@ -123,12 +142,21 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    const permissions: Record<string, any> = {};
+    const effectivePerms = await EffectivePermissionService.getEffectivePermissions(user.id);
+
+    const hasFullAccess = effectivePerms.some((p) => p.name === 'FULL_SYSTEM_ACCESS');
+    const granularPermissions: Record<string, string[]> = {};
+    for (const perm of effectivePerms) {
+      if (!granularPermissions[perm.module]) granularPermissions[perm.module] = [];
+      granularPermissions[perm.module].push(perm.name);
+    }
+
+    const legacyPermissions: Record<string, any> = {};
     for (const userRole of user.roles) {
       for (const rolePerm of userRole.role.permissionSets) {
         const objName = rolePerm.permissionSet.objectName;
-        if (!permissions[objName]) {
-          permissions[objName] = rolePerm.permissionSet.permissions;
+        if (!legacyPermissions[objName]) {
+          legacyPermissions[objName] = rolePerm.permissionSet.permissions;
         }
       }
     }
@@ -143,10 +171,15 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
           lastName: user.lastName,
           phone: user.phone,
           avatar: user.avatar,
+          isSuperAdmin: user.isSuperAdmin,
         },
+        profile: user.profile,
         tenant: user.tenant,
         roles: user.roles.map((ur) => ur.role.name),
-        permissions,
+        permissions: legacyPermissions,
+        effectivePermissions: effectivePerms.map((p) => p.name),
+        effectivePermissionsByModule: granularPermissions,
+        hasFullAccess,
       },
     });
   } catch (error) {

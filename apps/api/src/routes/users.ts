@@ -16,6 +16,7 @@ const inviteUserSchema = z.object({
   phone: z.string().optional(),
   roleIds: z.array(z.string()).min(1),
   password: z.string().min(8).optional(),
+  profileId: z.string().optional(),
 });
 
 const updateUserSchema = z.object({
@@ -23,6 +24,7 @@ const updateUserSchema = z.object({
   lastName: z.string().min(1).optional(),
   phone: z.string().optional(),
   avatar: z.string().optional(),
+  profileId: z.string().nullable().optional(),
 });
 
 router.get('/', authorize('User', 'read'), async (req: AuthRequest, res: Response) => {
@@ -53,6 +55,8 @@ router.get('/', authorize('User', 'read'), async (req: AuthRequest, res: Respons
           isActive: true,
           lastLoginAt: true,
           createdAt: true,
+          profileId: true,
+          profile: { select: { id: true, name: true } },
           roles: {
             include: {
               role: { select: { id: true, name: true } },
@@ -139,6 +143,8 @@ router.get('/:id', authorize('User', 'read'), async (req: AuthRequest, res: Resp
         isActive: true,
         lastLoginAt: true,
         createdAt: true,
+        profileId: true,
+        profile: { select: { id: true, name: true } },
         roles: {
           include: {
             role: { select: { id: true, name: true } },
@@ -182,6 +188,7 @@ router.post('/', authorize('User', 'create'), async (req: AuthRequest, res: Resp
         lastName: data.lastName,
         phone: data.phone,
         passwordHash,
+        profileId: data.profileId || undefined,
         roles: {
           create: data.roleIds.map((roleId) => ({ roleId })),
         },
@@ -194,6 +201,8 @@ router.post('/', authorize('User', 'create'), async (req: AuthRequest, res: Resp
         phone: true,
         isActive: true,
         createdAt: true,
+        profileId: true,
+        profile: { select: { id: true, name: true } },
         roles: {
           include: {
             role: { select: { id: true, name: true } },
@@ -247,6 +256,8 @@ router.put('/:id', authorize('User', 'edit'), async (req: AuthRequest, res: Resp
         avatar: true,
         isActive: true,
         createdAt: true,
+        profileId: true,
+        profile: { select: { id: true, name: true } },
       },
     });
 
@@ -373,6 +384,8 @@ router.put('/:id/roles', authorize('User', 'edit'), async (req: AuthRequest, res
         email: true,
         firstName: true,
         lastName: true,
+        profileId: true,
+        profile: { select: { id: true, name: true } },
         roles: {
           include: {
             role: { select: { id: true, name: true } },
@@ -396,6 +409,50 @@ router.put('/:id/roles', authorize('User', 'edit'), async (req: AuthRequest, res
   } catch (error) {
     console.error('Update user roles error:', error);
     res.status(500).json({ success: false, error: 'Failed to update user roles' });
+  }
+});
+
+router.put('/:id/profile', authorize('User', 'edit'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { profileId } = req.body;
+
+    const existingUser = await prisma.user.findFirst({
+      where: { id: req.params.id, tenantId: req.tenantId! },
+    });
+
+    if (!existingUser) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { profileId: profileId || null },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        profileId: true,
+        profile: { select: { id: true, name: true } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        tenantId: req.tenantId!,
+        userId: req.user!.id,
+        action: 'UPDATE',
+        objectType: 'User',
+        objectId: user.id,
+        oldValues: { profileId: existingUser.profileId },
+        newValues: { profileId },
+      },
+    });
+
+    res.json({ success: true, data: user });
+  } catch (error) {
+    console.error('Update user profile error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update user profile' });
   }
 });
 

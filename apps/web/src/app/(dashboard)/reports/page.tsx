@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ import {
   Calendar,
   ArrowRight,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface Report {
   id: string;
@@ -96,6 +98,8 @@ const categoryIcons: Record<string, React.ComponentType<{ className?: string }>>
 };
 
 export default function ReportsPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [dateRange, setDateRange] = React.useState("30d");
 
   return (
@@ -119,7 +123,7 @@ export default function ReportsPage() {
               <SelectItem value="1y">Last 1 year</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => toast({ title: "Export All", description: "Export feature coming soon" })}>
             <Download className="mr-2 h-4 w-4" />
             Export All
           </Button>
@@ -157,11 +161,11 @@ export default function ReportsPage() {
                   )}
                 </div>
                 <div className="flex gap-2">
-                  <Button className="flex-1" size="sm">
+                  <Button className="flex-1" size="sm" onClick={() => toast({ title: "Generating Report", description: `${report.title} is being generated...` })}>
                     Generate
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={() => toast({ title: "Download", description: "Download feature coming soon" })}>
                     <Download className="h-4 w-4" />
                   </Button>
                 </div>

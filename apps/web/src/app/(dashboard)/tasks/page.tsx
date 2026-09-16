@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface Task {
   id: string;
@@ -221,6 +223,8 @@ const columns: ColumnDef<Task>[] = [
 ];
 
 export default function TasksPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [currentPage, setCurrentPage] = React.useState(1);
   const [filters, setFilters] = React.useState({ priority: "", status: "" });
 
@@ -233,7 +237,7 @@ export default function TasksPage() {
             Manage your tasks and stay on top of your work
           </p>
         </div>
-        <Button>
+        <Button onClick={() => toast({ title: "New Task", description: "Create task form coming soon" })}>
           <Plus className="mr-2 h-4 w-4" />
           New Task
         </Button>

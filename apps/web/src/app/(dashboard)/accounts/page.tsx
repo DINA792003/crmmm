@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { toast } from "@/hooks/use-toast";
 
 interface Account {
   id: string;
@@ -137,7 +139,7 @@ const columns: ColumnDef<Account>[] = [
               <Edit className="mr-2 h-4 w-4" />
               Edit
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive">
+            <DropdownMenuItem className="text-destructive" onClick={() => toast({ title: "Delete", description: "Account deletion coming soon" })}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </DropdownMenuItem>
@@ -149,6 +151,7 @@ const columns: ColumnDef<Account>[] = [
 ];
 
 export default function AccountsPage() {
+  const router = useRouter();
   const [currentPage, setCurrentPage] = React.useState(1);
 
   return (
@@ -161,15 +164,15 @@ export default function AccountsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => toast({ title: "Import", description: "Import feature coming soon" })}>
             <Upload className="mr-2 h-4 w-4" />
             Import
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => toast({ title: "Export", description: "Export feature coming soon" })}>
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
-          <Button>
+          <Button onClick={() => toast({ title: "Add Account", description: "Create account form coming soon" })}>
             <Plus className="mr-2 h-4 w-4" />
             Add Account
           </Button>

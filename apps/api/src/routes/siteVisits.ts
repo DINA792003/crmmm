@@ -15,7 +15,7 @@ const siteVisitSchema = z.object({
   assigneeId: z.string().optional(),
   queueId: z.string().optional(),
   scheduledAt: z.string().datetime(),
-  status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
+  status: z.enum(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED']).optional(),
   notes: z.string().max(2000).optional(),
   feedback: z.string().max(1000).optional(),
   rating: z.number().int().min(1).max(5).optional(),
@@ -163,12 +163,12 @@ router.put('/:id', authorize('SiteVisit', 'edit'), async (req: AuthRequest, res:
 
     const data = updateSiteVisitSchema.parse(req.body);
 
+    const updateData: any = { ...data };
+    if (data.scheduledAt) updateData.scheduledAt = new Date(data.scheduledAt);
+
     const siteVisit = await prisma.siteVisit.update({
       where: { id: req.params.id },
-      data: {
-        ...data,
-        scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : undefined,
-      },
+      data: updateData,
     });
 
     await auditLog(tenantId, userId, 'UPDATE', 'SiteVisit', siteVisit.id, existing, siteVisit);

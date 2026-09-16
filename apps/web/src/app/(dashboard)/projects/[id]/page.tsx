@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
   Edit,
@@ -90,6 +91,8 @@ const formatCurrency = (value: number) => {
 
 export default function ProjectDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
   const [project, setProject] = React.useState<ProjectData | null>(null);
   const [units, setUnits] = React.useState<Unit[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -155,7 +158,7 @@ export default function ProjectDetailPage() {
             </p>
           </div>
         </div>
-        <Button>
+        <Button onClick={() => toast({ title: "Edit Project", description: "Edit project form coming soon" })}>
           <Edit className="mr-2 h-4 w-4" />
           Edit Project
         </Button>

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/contexts/auth-context";
 import {
   LayoutDashboard,
   Users,
@@ -57,60 +58,81 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   boxes: Boxes,
 };
 
-const staticNavigation: NavItem[] = [
-  {
-    title: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "CRM",
-    href: "#",
-    icon: Users,
-    items: [
-      { title: "Leads", href: "/leads", icon: Contact },
-      { title: "Contacts", href: "/contacts", icon: Contact },
-      { title: "Accounts", href: "/accounts", icon: Building2 },
-      { title: "Customers", href: "/customers", icon: UserCheck },
-    ],
-  },
-  {
-    title: "Sales",
-    href: "#",
-    icon: TrendingUp,
-    items: [
-      { title: "Site Visits", href: "/site-visits", icon: MapPin },
-      { title: "Opportunities", href: "/opportunities", icon: TrendingUp },
-      { title: "Quotations", href: "/quotations", icon: FileText },
-      { title: "Bookings", href: "/bookings", icon: CalendarCheck },
-      { title: "Payments", href: "/payments", icon: CreditCard },
-    ],
-  },
-  {
-    title: "Projects",
-    href: "/projects",
-    icon: FolderKanban,
-  },
-  {
-    title: "Tasks",
-    href: "/tasks",
-    icon: CheckSquare,
-  },
-  {
-    title: "Reports",
-    href: "/reports",
-    icon: BarChart3,
-  },
-  {
-    title: "Admin",
-    href: "#",
-    icon: Settings,
-    items: [
-      { title: "Object Manager", href: "/admin/object-manager", icon: Database },
-      { title: "Settings", href: "/admin", icon: Settings },
-    ],
-  },
-];
+function getNavigationByProfile(profileName: string | undefined, hasEffectivePermission: (perm: string) => boolean): NavItem[] {
+  const isAdminOrManager = profileName === "Admin" || profileName === "Manager" || profileName === "CRM Admin";
+
+  const allItems: NavItem[] = [
+    { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    {
+      title: "CRM",
+      href: "#",
+      icon: Users,
+      items: [
+        { title: "Leads", href: "/leads", icon: Contact },
+        { title: "Contacts", href: "/contacts", icon: Contact },
+        { title: "Accounts", href: "/accounts", icon: Building2 },
+        { title: "Customers", href: "/customers", icon: UserCheck },
+      ],
+    },
+    {
+      title: "Sales",
+      href: "#",
+      icon: TrendingUp,
+      items: [
+        { title: "Site Visits", href: "/site-visits", icon: MapPin },
+        { title: "Opportunities", href: "/opportunities", icon: TrendingUp },
+        { title: "Quotations", href: "/quotations", icon: FileText },
+        { title: "Bookings", href: "/bookings", icon: CalendarCheck },
+        { title: "Payments", href: "/payments", icon: CreditCard },
+      ],
+    },
+    { title: "Projects", href: "/projects", icon: FolderKanban },
+    { title: "Tasks", href: "/tasks", icon: CheckSquare },
+    { title: "Reports", href: "/reports", icon: BarChart3 },
+  ];
+
+  if (isAdminOrManager) {
+    allItems.push({
+      title: "Admin",
+      href: "#",
+      icon: Settings,
+      items: [
+        { title: "Object Manager", href: "/admin/object-manager", icon: Database },
+        { title: "Users", href: "/admin/users", icon: Users },
+        { title: "Profiles", href: "/admin/profiles", icon: UserCheck },
+        { title: "Permission Sets", href: "/admin/permission-sets", icon: Settings },
+        { title: "Settings", href: "/admin", icon: Settings },
+      ],
+    });
+    return allItems;
+  }
+
+  const nav: NavItem[] = [{ title: "Dashboard", href: "/dashboard", icon: LayoutDashboard }];
+
+  if (hasEffectivePermission("LEAD_READ")) {
+    const leadItems: NavItem[] = [];
+    if (hasEffectivePermission("LEAD_READ")) leadItems.push({ title: "Leads", href: "/leads", icon: Contact });
+    if (leadItems.length > 0) {
+      nav.push({ title: "CRM", href: "#", icon: Users, items: leadItems });
+    }
+  }
+
+  const salesItems: NavItem[] = [];
+  if (hasEffectivePermission("SITE_VISIT_READ")) salesItems.push({ title: "Site Visits", href: "/site-visits", icon: MapPin });
+  if (hasEffectivePermission("OPPORTUNITY_READ")) salesItems.push({ title: "Opportunities", href: "/opportunities", icon: TrendingUp });
+  if (hasEffectivePermission("QUOTATION_READ")) salesItems.push({ title: "Quotations", href: "/quotations", icon: FileText });
+  if (hasEffectivePermission("BOOKING_READ")) salesItems.push({ title: "Bookings", href: "/bookings", icon: CalendarCheck });
+  if (hasEffectivePermission("PAYMENT_READ")) salesItems.push({ title: "Payments", href: "/payments", icon: CreditCard });
+  if (salesItems.length > 0) {
+    nav.push({ title: "Sales", href: "#", icon: TrendingUp, items: salesItems });
+  }
+
+  if (hasEffectivePermission("PROJECT_READ")) nav.push({ title: "Projects", href: "/projects", icon: FolderKanban });
+  if (hasEffectivePermission("TASK_READ")) nav.push({ title: "Tasks", href: "/tasks", icon: CheckSquare });
+  if (hasEffectivePermission("REPORT_VIEW")) nav.push({ title: "Reports", href: "/reports", icon: BarChart3 });
+
+  return nav;
+}
 
 interface SidebarProps {
   isOpen: boolean;
@@ -119,6 +141,7 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { profile, hasEffectivePermission } = useAuth();
   const [expandedItems, setExpandedItems] = React.useState<string[]>([]);
   const [customObjects, setCustomObjects] = React.useState<NavItem[]>([]);
 
@@ -153,6 +176,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     }
   };
 
+  const staticNavigation = getNavigationByProfile(profile?.name, hasEffectivePermission);
   const navigation = [...staticNavigation, ...customObjects];
 
   const toggleExpanded = (title: string) => {

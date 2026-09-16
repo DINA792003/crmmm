@@ -1068,7 +1068,7 @@ export default function ObjectSettingsPage() {
                       )}
                       {formData.picklistValues.length === 0 ? (
                         <div className="text-center py-4 text-sm text-muted-foreground border rounded-md">
-                          No picklist values. Click "Add Value" to create one.
+                          No picklist values. Click &quot;Add Value&quot; to create one.
                         </div>
                       ) : (
                         <div className="space-y-2 max-h-48 overflow-y-auto">

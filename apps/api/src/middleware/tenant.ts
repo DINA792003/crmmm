@@ -1,13 +1,28 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@dct-crm/db';
+import { AuthRequest } from './auth';
+
+export interface TenantContext {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      tenant?: TenantContext;
+    }
+  }
+}
 
 export const tenantContext = async (
-  req: Request,
+  req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const tenantId = (req as any).tenantId;
+    const tenantId = req.user?.tenantId;
 
     if (!tenantId) {
       return res.status(400).json({ success: false, error: 'Tenant context required' });
@@ -18,11 +33,15 @@ export const tenantContext = async (
       select: { id: true, name: true, isActive: true },
     });
 
-    if (!tenant || !tenant.isActive) {
-      return res.status(403).json({ success: false, error: 'Invalid or inactive tenant' });
+    if (!tenant) {
+      return res.status(403).json({ success: false, error: 'Tenant not found' });
     }
 
-    (req as any).tenant = tenant;
+    if (!tenant.isActive && !req.user?.isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Tenant is inactive' });
+    }
+
+    req.tenant = tenant;
     next();
   } catch (error) {
     console.error('Tenant context error:', error);
@@ -30,6 +49,43 @@ export const tenantContext = async (
   }
 };
 
-export const validateTenantAccess = (tenantId: string, resourceTenantId: string): boolean => {
-  return tenantId === resourceTenantId;
+export const requireTenantAccess = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  if (!req.user.tenantId) {
+    return res.status(403).json({ success: false, error: 'No tenant associated with user' });
+  }
+
+  next();
+};
+
+export const validateTenantAccess = (userTenantId: string, resourceTenantId: string): boolean => {
+  return userTenantId === resourceTenantId;
+};
+
+export const ensureTenantIsolation = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  if (req.user.isSuperAdmin) {
+    return next();
+  }
+
+  const bodyTenantId = req.body?.tenantId;
+  if (bodyTenantId && bodyTenantId !== req.user.tenantId) {
+    delete req.body.tenantId;
+  }
+
+  next();
 };

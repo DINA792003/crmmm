@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OpportunityPipeline, Opportunity } from "@/components/crm/opportunity-pipeline";
@@ -15,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 const mockOpportunities: Opportunity[] = [
   {
@@ -165,11 +167,13 @@ const listColumns: ColumnDef<Opportunity>[] = [
 ];
 
 export default function OpportunitiesPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [view, setView] = React.useState<"pipeline" | "list">("pipeline");
   const [currentPage, setCurrentPage] = React.useState(1);
 
   const handleStageChange = (opportunityId: string, newStage: string) => {
-    console.log(`Moving opportunity ${opportunityId} to stage ${newStage}`);
+    toast({ title: "Stage Updated", description: `Opportunity moved to ${newStage.replace("-", " ")}` });
   };
 
   return (
@@ -195,7 +199,7 @@ export default function OpportunitiesPage() {
               </>
             )}
           </Button>
-          <Button>
+          <Button onClick={() => toast({ title: "New Opportunity", description: "Create opportunity form coming soon" })}>
             <Plus className="mr-2 h-4 w-4" />
             New Opportunity
           </Button>

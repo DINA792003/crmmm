@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
   Edit,
@@ -77,6 +78,8 @@ const stages = ["prospecting", "qualification", "proposal", "negotiation", "clos
 
 export default function OpportunityDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { toast } = useToast();
   const [opportunity, setOpportunity] = React.useState<OpportunityData | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
@@ -131,11 +134,11 @@ export default function OpportunityDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => toast({ title: "Edit", description: "Edit opportunity form coming soon" })}>
             <Edit className="mr-2 h-4 w-4" />
             Edit
           </Button>
-          <Button variant="destructive">
+          <Button variant="destructive" onClick={() => { toast({ title: "Deleted", description: "Opportunity deleted" }); router.push("/opportunities"); }}>
             <Trash2 className="mr-2 h-4 w-4" />
             Delete
           </Button>

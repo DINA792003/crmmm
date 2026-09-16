@@ -113,6 +113,7 @@ router.post('/chat', async (req: AuthRequest, res: Response) => {
       id: req.user!.id,
       email: req.user!.email,
       tenantId: req.tenantId!,
+      isSuperAdmin: req.user!.isSuperAdmin,
     });
 
     let assistantResponse: string;
@@ -207,6 +208,7 @@ router.post('/send', async (req: AuthRequest, res: Response) => {
       id: req.user!.id,
       email: req.user!.email,
       tenantId: req.tenantId!,
+      isSuperAdmin: req.user!.isSuperAdmin,
     });
 
     let assistantResponse: string;

@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { prisma } from '@dct-crm/db';
 import { z } from 'zod';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { authorize } from '../middleware/authorization';
+import { requireSuperAdmin } from '../middleware/superAdmin';
 
 const router = Router();
 
@@ -22,7 +22,7 @@ const updateTenantSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-router.get('/tenants', authorize('Admin', 'read'), async (req: AuthRequest, res: Response) => {
+router.get('/tenants', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const { page = 1, limit = 20, isActive, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
@@ -65,7 +65,7 @@ router.get('/tenants', authorize('Admin', 'read'), async (req: AuthRequest, res:
   }
 });
 
-router.get('/tenants/:id', authorize('Admin', 'read'), async (req: AuthRequest, res: Response) => {
+router.get('/tenants/:id', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.params.id },
@@ -87,7 +87,7 @@ router.get('/tenants/:id', authorize('Admin', 'read'), async (req: AuthRequest, 
   }
 });
 
-router.post('/tenants', authorize('Admin', 'create'), async (req: AuthRequest, res: Response) => {
+router.post('/tenants', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const data = createTenantSchema.parse(req.body);
 
@@ -128,7 +128,7 @@ router.post('/tenants', authorize('Admin', 'create'), async (req: AuthRequest, r
   }
 });
 
-router.put('/tenants/:id', authorize('Admin', 'edit'), async (req: AuthRequest, res: Response) => {
+router.put('/tenants/:id', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const existingTenant = await prisma.tenant.findUnique({
       where: { id: req.params.id },
@@ -167,7 +167,7 @@ router.put('/tenants/:id', authorize('Admin', 'edit'), async (req: AuthRequest, 
   }
 });
 
-router.put('/tenants/:id/deactivate', authorize('Admin', 'edit'), async (req: AuthRequest, res: Response) => {
+router.put('/tenants/:id/deactivate', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.params.id },
@@ -201,7 +201,7 @@ router.put('/tenants/:id/deactivate', authorize('Admin', 'edit'), async (req: Au
   }
 });
 
-router.put('/tenants/:id/activate', authorize('Admin', 'edit'), async (req: AuthRequest, res: Response) => {
+router.put('/tenants/:id/activate', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.params.id },
@@ -235,7 +235,7 @@ router.put('/tenants/:id/activate', authorize('Admin', 'edit'), async (req: Auth
   }
 });
 
-router.delete('/tenants/:id', authorize('Admin', 'delete'), async (req: AuthRequest, res: Response) => {
+router.delete('/tenants/:id', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.params.id },
@@ -259,7 +259,7 @@ router.delete('/tenants/:id', authorize('Admin', 'delete'), async (req: AuthRequ
   }
 });
 
-router.get('/stats', authorize('Admin', 'read'), async (req: AuthRequest, res: Response) => {
+router.get('/stats', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const [totalTenants, activeTenants, totalUsers, activeUsers] = await Promise.all([
       prisma.tenant.count(),

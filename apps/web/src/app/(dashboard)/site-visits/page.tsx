@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface SiteVisit {
   id: string;
@@ -146,6 +148,8 @@ const columns: ColumnDef<SiteVisit>[] = [
 ];
 
 export default function SiteVisitsPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [currentPage, setCurrentPage] = React.useState(1);
   const [filters, setFilters] = React.useState({ status: "" });
 
@@ -158,7 +162,7 @@ export default function SiteVisitsPage() {
             Schedule and track property site visits
           </p>
         </div>
-        <Button>
+        <Button onClick={() => toast({ title: "Schedule Visit", description: "Schedule visit form coming soon" })}>
           <Plus className="mr-2 h-4 w-4" />
           Schedule Visit
         </Button>

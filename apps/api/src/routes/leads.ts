@@ -3,6 +3,7 @@ import { prisma } from '@dct-crm/db';
 import { leadSchema } from '@dct-crm/shared';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/authorization';
+import { canTransitionStatus, getAllowedStatuses } from '../services/workflow';
 
 const router = Router();
 
@@ -24,6 +25,19 @@ router.get('/', authorize('Lead', 'read'), async (req: AuthRequest, res: Respons
         { email: { contains: search as string, mode: 'insensitive' } },
         { phone: { contains: search as string } },
       ];
+    }
+
+    const userProfile = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { profile: { select: { name: true } } },
+    });
+    const profileName = userProfile?.profile?.name || 'Admin';
+
+    if (profileName !== 'Admin' && profileName !== 'Manager' && profileName !== 'CRM Admin') {
+      const allowedStatuses = getAllowedStatuses(profileName);
+      if (allowedStatuses.length > 0) {
+        where.status = { in: allowedStatuses };
+      }
     }
 
     const [leads, total] = await Promise.all([
@@ -231,6 +245,21 @@ router.put('/:id/status', authorize('Lead', 'edit'), async (req: AuthRequest, re
       return res.status(404).json({ success: false, error: 'Lead not found' });
     }
 
+    const userProfile = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { profile: { select: { name: true } } },
+    });
+    const profileName = userProfile?.profile?.name || 'Admin';
+
+    if (profileName !== 'Admin' && profileName !== 'Manager' && profileName !== 'CRM Admin') {
+      if (!canTransitionStatus(profileName, lead.status, status)) {
+        return res.status(403).json({
+          success: false,
+          error: `Your profile (${profileName}) does not have permission to change lead status from ${lead.status} to ${status}`,
+        });
+      }
+    }
+
     const updatedLead = await prisma.lead.update({
       where: { id: req.params.id },
       data: { status },
@@ -253,6 +282,62 @@ router.put('/:id/status', authorize('Lead', 'edit'), async (req: AuthRequest, re
   } catch (error) {
     console.error('Update lead status error:', error);
     res.status(500).json({ success: false, error: 'Failed to update lead status' });
+  }
+});
+
+router.post('/:id/recovery', authorize('Lead', 'edit'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { recoveryReason, note } = req.body;
+
+    const lead = await prisma.lead.findFirst({
+      where: { id: req.params.id, tenantId: req.tenantId! },
+    });
+
+    if (!lead) {
+      return res.status(404).json({ success: false, error: 'Lead not found' });
+    }
+
+    const userProfile = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { profile: { select: { name: true } } },
+    });
+    const profileName = userProfile?.profile?.name || 'Admin';
+
+    if (profileName !== 'Admin' && profileName !== 'Manager' && profileName !== 'CRM Admin') {
+      if (!canTransitionStatus(profileName, lead.status, 'LOST')) {
+        return res.status(403).json({
+          success: false,
+          error: `Your profile (${profileName}) does not have permission to move this lead to recovery`,
+        });
+      }
+    }
+
+    const updatedLead = await prisma.lead.update({
+      where: { id: req.params.id },
+      data: { status: 'LOST' },
+      include: {
+        owner: { select: { id: true, firstName: true, lastName: true } },
+        project: { select: { id: true, name: true } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        tenantId: req.tenantId!,
+        userId: req.user!.id,
+        leadId: lead.id,
+        action: 'STATUS_CHANGE',
+        objectType: 'Lead',
+        objectId: lead.id,
+        oldValues: { status: lead.status },
+        newValues: { status: 'LOST', recoveryReason, recoveryNote: note, profile: profileName },
+      },
+    });
+
+    res.json({ success: true, data: updatedLead });
+  } catch (error) {
+    console.error('Recovery lead error:', error);
+    res.status(500).json({ success: false, error: 'Failed to move lead to recovery' });
   }
 });
 

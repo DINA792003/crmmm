@@ -13,7 +13,7 @@ const paymentSchema = z.object({
   bookingId: z.string(),
   customerId: z.string().optional(),
   amount: z.number().min(0.01),
-  status: z.enum(['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED']).optional(),
+  status: z.enum(['PENDING', 'VERIFIED', 'REJECTED', 'PARTIAL', 'COMPLETED']).optional(),
   paymentDate: z.string().datetime().optional(),
   reference: z.string().max(200).optional(),
   notes: z.string().max(2000).optional(),
@@ -239,19 +239,19 @@ router.patch('/:id/refund', authorize('Payment', 'edit'), async (req: AuthReques
       return res.status(404).json({ success: false, error: 'Payment not found' });
     }
 
-    if (existing.status === 'REFUNDED') {
+    if (existing.status === 'REJECTED') {
       return res.status(400).json({ success: false, error: 'Payment is already refunded' });
     }
 
     const payment = await prisma.payment.update({
       where: { id: req.params.id },
       data: {
-        status: 'REFUNDED',
+        status: 'REJECTED',
         notes: notes || existing.notes,
       },
     });
 
-    await auditLog(tenantId, userId, 'UPDATE', 'Payment', payment.id, existing, { status: 'REFUNDED', notes });
+    await auditLog(tenantId, userId, 'UPDATE', 'Payment', payment.id, existing, { status: 'REJECTED', notes });
 
     res.json({ success: true, data: payment });
   } catch (error) {

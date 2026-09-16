@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { authenticate } from '../middleware/auth';
+import { authenticate, AuthRequest } from '../middleware/auth';
+import { Response } from 'express';
 import { authorize } from '../middleware/authorization';
 import { auditLog } from '../middleware/audit';
 import { ApiResponse, PaginatedResponse } from '../types';
@@ -16,22 +17,13 @@ const projectSchema = z.object({
   address: z.string().min(1).max(500),
   city: z.string().max(100).optional(),
   state: z.string().max(100).optional(),
-  country: z.string().max(100).optional(),
-  postalCode: z.string().max(20).optional(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
-  status: z.enum(['PLANNING', 'IN_PROGRESS', 'COMPLETED', 'ON_HOLD']).optional(),
-  startDate: z.string().datetime().optional(),
-  expectedEndDate: z.string().datetime().optional(),
-  actualEndDate: z.string().datetime().optional(),
+  zipCode: z.string().max(20).optional(),
   totalUnits: z.number().int().min(0).optional(),
-  availableUnits: z.number().int().min(0).optional(),
-  tags: z.array(z.string()).optional(),
 });
 
 const updateProjectSchema = projectSchema.partial();
 
-router.get('/', authenticate, authorize('Project', 'read'), async (req, res) => {
+router.get('/', authenticate, authorize('Project', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId } = req.user!;
     const { page = 1, limit = 50, search, status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
@@ -80,7 +72,7 @@ router.get('/', authenticate, authorize('Project', 'read'), async (req, res) => 
   }
 });
 
-router.get('/:id', authenticate, authorize('Project', 'read'), async (req, res) => {
+router.get('/:id', authenticate, authorize('Project', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId } = req.user!;
     const { id } = req.params;
@@ -106,7 +98,7 @@ router.get('/:id', authenticate, authorize('Project', 'read'), async (req, res) 
   }
 });
 
-router.post('/', authenticate, authorize('Project', 'create'), async (req, res) => {
+router.post('/', authenticate, authorize('Project', 'create'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const data = projectSchema.parse(req.body);
@@ -115,9 +107,6 @@ router.post('/', authenticate, authorize('Project', 'create'), async (req, res) 
       data: {
         ...data,
         tenantId,
-        startDate: data.startDate ? new Date(data.startDate) : undefined,
-        expectedEndDate: data.expectedEndDate ? new Date(data.expectedEndDate) : undefined,
-        actualEndDate: data.actualEndDate ? new Date(data.actualEndDate) : undefined,
       },
     });
 
@@ -132,7 +121,7 @@ router.post('/', authenticate, authorize('Project', 'create'), async (req, res) 
   }
 });
 
-router.put('/:id', authenticate, authorize('Project', 'edit'), async (req, res) => {
+router.put('/:id', authenticate, authorize('Project', 'edit'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const { id } = req.params;
@@ -143,14 +132,9 @@ router.put('/:id', authenticate, authorize('Project', 'edit'), async (req, res) 
       return res.status(404).json({ success: false, error: 'Project not found' });
     }
 
-    const updateData: any = { ...data, updatedAt: new Date() };
-    if (data.startDate) updateData.startDate = new Date(data.startDate);
-    if (data.expectedEndDate) updateData.expectedEndDate = new Date(data.expectedEndDate);
-    if (data.actualEndDate) updateData.actualEndDate = new Date(data.actualEndDate);
-
     const project = await prisma.project.update({
       where: { id },
-      data: updateData,
+      data: { ...data, updatedAt: new Date() },
     });
 
     await auditLog(tenantId, userId, 'UPDATE', 'Project', id, null, data);
@@ -164,7 +148,7 @@ router.put('/:id', authenticate, authorize('Project', 'edit'), async (req, res) 
   }
 });
 
-router.delete('/:id', authenticate, authorize('Project', 'delete'), async (req, res) => {
+router.delete('/:id', authenticate, authorize('Project', 'delete'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const { id } = req.params;

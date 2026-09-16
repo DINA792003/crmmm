@@ -61,6 +61,8 @@ export const leadApi = {
     api.delete<ApiResponse>(`/api/leads/${id}`),
   updateStatus: (id: string, status: string) =>
     api.put<ApiResponse>(`/api/leads/${id}/status`, { status }),
+  recovery: (id: string, data: { recoveryReason: string; note?: string }) =>
+    api.post<ApiResponse>(`/api/leads/${id}/recovery`, data),
   assign: (id: string, ownerId: string) =>
     api.put<ApiResponse>(`/api/leads/${id}/assign`, { ownerId }),
 };
@@ -484,6 +486,84 @@ export const dynamicRecordApi = {
     api.delete<ApiResponse>(`/api/records/${objectName}/${id}`),
   bulkCreate: (objectName: string, records: any[]) =>
     api.post<ApiResponse>(`/api/records/${objectName}/bulk`, { records }),
+};
+
+// Profile API
+export const profileApi = {
+  list: (params?: Record<string, any>) =>
+    api.get<ApiResponse>('/api/profiles', { params }),
+  get: (id: string) =>
+    api.get<ApiResponse>(`/api/profiles/${id}`),
+  create: (data: any) =>
+    api.post<ApiResponse>('/api/profiles', data),
+  update: (id: string, data: any) =>
+    api.put<ApiResponse>(`/api/profiles/${id}`, data),
+  delete: (id: string) =>
+    api.delete<ApiResponse>(`/api/profiles/${id}`),
+};
+
+// Permission Catalog API
+export const permissionApi = {
+  list: (params?: Record<string, any>) =>
+    api.get<ApiResponse>('/api/permissions', { params }),
+  getModules: () =>
+    api.get<ApiResponse>('/api/permissions/modules'),
+};
+
+// New PermissionSet API (effective permission system)
+export const newPermissionSetApi = {
+  list: (params?: Record<string, any>) =>
+    api.get<ApiResponse>('/api/new-permission-sets', { params }),
+  get: (id: string) =>
+    api.get<ApiResponse>(`/api/new-permission-sets/${id}`),
+  create: (data: any) =>
+    api.post<ApiResponse>('/api/new-permission-sets', data),
+  update: (id: string, data: any) =>
+    api.put<ApiResponse>(`/api/new-permission-sets/${id}`, data),
+  delete: (id: string) =>
+    api.delete<ApiResponse>(`/api/new-permission-sets/${id}`),
+  assign: (id: string, userIds: string[]) =>
+    api.post<ApiResponse>(`/api/new-permission-sets/${id}/assign`, { userIds }),
+  unassign: (id: string, userId: string) =>
+    api.delete<ApiResponse>(`/api/new-permission-sets/${id}/assign/${userId}`),
+};
+
+// User Permissions API (direct permissions + permission set assignments)
+export const userPermissionApi = {
+  getDirectPermissions: (userId: string) =>
+    api.get<ApiResponse>(`/api/user-permissions/${userId}/direct-permissions`),
+  addDirectPermissions: (userId: string, permissionIds: string[]) =>
+    api.post<ApiResponse>(`/api/user-permissions/${userId}/direct-permissions`, { permissionIds }),
+  removeDirectPermission: (userId: string, permissionId: string) =>
+    api.delete<ApiResponse>(`/api/user-permissions/${userId}/direct-permissions/${permissionId}`),
+  getUserPermissionSets: (userId: string) =>
+    api.get<ApiResponse>(`/api/user-permissions/${userId}/permission-sets`),
+  assignPermissionSets: (userId: string, permissionSetIds: string[]) =>
+    api.post<ApiResponse>(`/api/user-permissions/${userId}/permission-sets`, { permissionSetIds }),
+  unassignPermissionSet: (userId: string, permissionSetId: string) =>
+    api.delete<ApiResponse>(`/api/user-permissions/${userId}/permission-sets/${permissionSetId}`),
+};
+
+// Effective Permissions API
+export const effectivePermissionApi = {
+  getMine: () =>
+    api.get<ApiResponse>('/api/effective-permissions/me'),
+  getUserPermissions: (userId: string) =>
+    api.get<ApiResponse>(`/api/effective-permissions/user/${userId}`),
+  check: (permissionName: string) =>
+    api.get<ApiResponse>(`/api/effective-permissions/check/${permissionName}`),
+};
+
+// Profile Permissions API
+export const profilePermissionApi = {
+  getPermissions: (profileId: string) =>
+    api.get<ApiResponse>(`/api/profile-permissions/${profileId}/permissions`),
+  setPermissions: (profileId: string, permissionIds: string[]) =>
+    api.put<ApiResponse>(`/api/profile-permissions/${profileId}/permissions`, { permissionIds }),
+  addPermissions: (profileId: string, permissionIds: string[]) =>
+    api.post<ApiResponse>(`/api/profile-permissions/${profileId}/permissions`, { permissionIds }),
+  removePermission: (profileId: string, permissionId: string) =>
+    api.delete<ApiResponse>(`/api/profile-permissions/${profileId}/permissions/${permissionId}`),
 };
 
 export default api;

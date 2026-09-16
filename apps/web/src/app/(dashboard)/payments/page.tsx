@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface Payment {
   id: string;
@@ -182,6 +184,8 @@ const columns: ColumnDef<Payment>[] = [
 ];
 
 export default function PaymentsPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [currentPage, setCurrentPage] = React.useState(1);
 
   return (
@@ -194,11 +198,11 @@ export default function PaymentsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => toast({ title: "Export", description: "Export feature coming soon" })}>
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
-          <Button>
+          <Button onClick={() => toast({ title: "Record Payment", description: "Record payment form coming soon" })}>
             <Plus className="mr-2 h-4 w-4" />
             Record Payment
           </Button>

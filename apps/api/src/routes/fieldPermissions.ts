@@ -146,8 +146,15 @@ router.post('/:objectName/bulk', async (req: AuthRequest, res: Response) => {
 
 router.delete('/:objectName/:permissionId', async (req: AuthRequest, res: Response) => {
   try {
+    const object = await prisma.objectDefinition.findFirst({
+      where: { tenantId: req.tenantId!, name: { equals: req.params.objectName, mode: 'insensitive' } },
+    });
+    if (!object) {
+      return res.status(404).json({ success: false, error: 'Object not found' });
+    }
+
     const existing = await prisma.fieldPermission.findFirst({
-      where: { id: req.params.permissionId },
+      where: { id: req.params.permissionId, field: { objectId: object.id } },
       include: { field: true },
     });
     if (!existing) {

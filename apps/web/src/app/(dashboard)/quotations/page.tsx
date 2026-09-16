@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface Quotation {
   id: string;
@@ -168,6 +170,8 @@ const columns: ColumnDef<Quotation>[] = [
 ];
 
 export default function QuotationsPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [currentPage, setCurrentPage] = React.useState(1);
 
   return (
@@ -179,7 +183,7 @@ export default function QuotationsPage() {
             Create and manage sales quotations
           </p>
         </div>
-        <Button>
+        <Button onClick={() => toast({ title: "New Quotation", description: "Create quotation form coming soon" })}>
           <Plus className="mr-2 h-4 w-4" />
           New Quotation
         </Button>

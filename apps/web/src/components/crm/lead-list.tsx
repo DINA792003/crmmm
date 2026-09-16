@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/crm/data-table";
-import { FilterBar, FilterField } from "@/components/crm/filters";
 import { format } from "date-fns";
 import { MoreHorizontal, Eye, Edit, Trash2 } from "lucide-react";
 import {
@@ -39,8 +38,32 @@ interface LeadListProps {
   onPageChange?: (page: number) => void;
 }
 
+const STATUS_LABEL_MAP: Record<string, string> = {
+  new: "New",
+  incoming: "Incoming",
+  prospect: "Prospect",
+  site_visit_scheduled: "Site Visit Scheduled",
+  site_visit_happened: "Site Visit Happened",
+  sales: "Sales",
+  opportunity: "Opportunity",
+  quotation: "Quotation",
+  approval: "Approval",
+  booking: "Booking",
+  duplicate: "Duplicate",
+  lost: "Lost",
+  booked: "Booked",
+};
+
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
+  incoming: "bg-cyan-100 text-cyan-800",
+  prospect: "bg-yellow-100 text-yellow-800",
+  site_visit_scheduled: "bg-orange-100 text-orange-800",
+  site_visit_happened: "bg-amber-100 text-amber-800",
+  booked: "bg-green-100 text-green-800",
+  lost: "bg-red-100 text-red-800",
+  sales: "bg-purple-100 text-purple-800",
+  opportunity: "bg-indigo-100 text-indigo-800",
   contacted: "bg-yellow-100 text-yellow-800",
   qualified: "bg-green-100 text-green-800",
   unqualified: "bg-gray-100 text-gray-800",
@@ -87,9 +110,10 @@ export const leadColumns: ColumnDef<Lead>[] = [
     header: "Status",
     cell: ({ row }) => {
       const status = row.getValue("status") as string;
+      const label = STATUS_LABEL_MAP[status] || status;
       return (
-        <Badge className={cn("capitalize", statusColors[status])}>
-          {status}
+        <Badge className={cn(statusColors[status])}>
+          {label}
         </Badge>
       );
     },
@@ -155,65 +179,8 @@ export function LeadList({
   currentPage,
   onPageChange,
 }: LeadListProps) {
-  const [filters, setFilters] = React.useState({
-    status: "",
-    priority: "",
-    source: "",
-  });
-
-  const handleFilterChange = (key: string, value: string) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const resetFilters = () => {
-    setFilters({ status: "", priority: "", source: "" });
-  };
-
   return (
     <div className="space-y-4">
-      <FilterBar onReset={resetFilters}>
-        <FilterField
-          label="Status"
-          type="select"
-          value={filters.status}
-          onChange={(value) => handleFilterChange("status", value as string)}
-          options={[
-            { label: "New", value: "new" },
-            { label: "Contacted", value: "contacted" },
-            { label: "Qualified", value: "qualified" },
-            { label: "Unqualified", value: "unqualified" },
-            { label: "Converted", value: "converted" },
-          ]}
-          placeholder="All Statuses"
-        />
-        <FilterField
-          label="Priority"
-          type="select"
-          value={filters.priority}
-          onChange={(value) => handleFilterChange("priority", value as string)}
-          options={[
-            { label: "Low", value: "low" },
-            { label: "Medium", value: "medium" },
-            { label: "High", value: "high" },
-            { label: "Urgent", value: "urgent" },
-          ]}
-          placeholder="All Priorities"
-        />
-        <FilterField
-          label="Source"
-          type="select"
-          value={filters.source}
-          onChange={(value) => handleFilterChange("source", value as string)}
-          options={[
-            { label: "Website", value: "website" },
-            { label: "Referral", value: "referral" },
-            { label: "Cold Call", value: "cold_call" },
-            { label: "Advertisement", value: "advertisement" },
-            { label: "Social Media", value: "social_media" },
-          ]}
-          placeholder="All Sources"
-        />
-      </FilterBar>
       <DataTable
         columns={leadColumns}
         data={leads}

@@ -23,6 +23,7 @@ import { followUpRoutes as followUpRouter } from './routes/followUps';
 import { activityRoutes as activityRouter } from './routes/activities';
 import { userRoutes as userRouter } from './routes/users';
 import { roleRoutes as roleRouter } from './routes/roles';
+import { profileRoutes as profileRouter } from './routes/profiles';
 import reportRouter from './routes/reports';
 import { dashboardRoutes as dashboardRouter } from './routes/dashboards';
 import { searchRoutes as searchRouter } from './routes/search';
@@ -39,6 +40,11 @@ import { pageLayoutRoutes as pageLayoutRouter } from './routes/pageLayouts';
 import { objectPermissionRoutes as objectPermissionRouter } from './routes/objectPermissions';
 import { fieldPermissionRoutes as fieldPermissionRouter } from './routes/fieldPermissions';
 import { dynamicCrudRoutes as dynamicCrudRouter } from './routes/dynamicCrud';
+import { permissionRoutes as permissionRouter } from './routes/permissions';
+import { newPermissionSetRoutes as newPermissionSetRouter } from './routes/permissionSets';
+import { userPermissionRoutes as userPermissionRouter } from './routes/userPermissions';
+import { effectivePermissionRoutes as effectivePermissionRouter } from './routes/effectivePermissions';
+import { profilePermissionRoutes as profilePermissionRouter } from './routes/profilePermissions';
 
 dotenv.config({ path: __dirname + '/../.env' });
 
@@ -85,6 +91,7 @@ app.use('/api/follow-ups', followUpRouter);
 app.use('/api/activities', activityRouter);
 app.use('/api/users', userRouter);
 app.use('/api/roles', roleRouter);
+app.use('/api/profiles', profileRouter);
 app.use('/api/reports', reportRouter);
 app.use('/api/dashboards', dashboardRouter);
 app.use('/api/search', searchRouter);
@@ -101,6 +108,11 @@ app.use('/api/layouts', pageLayoutRouter);
 app.use('/api/object-permissions', objectPermissionRouter);
 app.use('/api/field-permissions', fieldPermissionRouter);
 app.use('/api/records', dynamicCrudRouter);
+app.use('/api/permissions', permissionRouter);
+app.use('/api/new-permission-sets', newPermissionSetRouter);
+app.use('/api/user-permissions', userPermissionRouter);
+app.use('/api/effective-permissions', effectivePermissionRouter);
+app.use('/api/profile-permissions', profilePermissionRouter);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', err);

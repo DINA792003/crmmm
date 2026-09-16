@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,12 +17,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Search, Bell, Menu, Settings, LogOut, User, HelpCircle } from "lucide-react";
 import { SearchDialog } from "@/components/crm/search-dialog";
+import { useAuth } from "@/contexts/auth-context";
 
 interface HeaderProps {
   onMenuClick: () => void;
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
+  const router = useRouter();
+  const { user, profile, logout } = useAuth();
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [notifications] = React.useState([
     { id: 1, title: "New lead assigned", time: "5 min ago", read: false },
@@ -31,6 +34,18 @@ export function Header({ onMenuClick }: HeaderProps) {
   ]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const userInitials = user
+    ? `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() || "U"
+    : "U";
+
+  const userName = user
+    ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || "User"
+    : "User";
+
+  const handleLogout = async () => {
+    await logout();
+  };
 
   return (
     <>
@@ -88,38 +103,49 @@ export function Header({ onMenuClick }: HeaderProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>Help Center</DropdownMenuItem>
-              <DropdownMenuItem>Documentation</DropdownMenuItem>
-              <DropdownMenuItem>Contact Support</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open("https://dctcrm.com/help", "_blank")}>
+                Help Center
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open("https://dctcrm.com/docs", "_blank")}>
+                Documentation
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open("mailto:support@dctcrm.com")}>
+                Contact Support
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src="/avatars/01.png" alt="User" />
-                  <AvatarFallback>JD</AvatarFallback>
+                  <AvatarImage src={user?.avatar || ""} alt={userName} />
+                  <AvatarFallback>{userInitials}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium">John Doe</p>
-                  <p className="text-xs text-muted-foreground">john@example.com</p>
+                  <p className="text-sm font-medium">{userName}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email || ""}</p>
+                  {profile && (
+                    <Badge variant="secondary" className="w-fit text-xs mt-1">
+                      {profile.name}
+                    </Badge>
+                  )}
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/admin/users")}>
                 <User className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/admin")}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 Log out
               </DropdownMenuItem>

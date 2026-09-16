@@ -1,82 +1,133 @@
 "use client";
 
 import * as React from "react";
+import { useAuth } from "@/contexts/auth-context";
+import { useRouter } from "next/navigation";
+import { leadApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { LeadList, Lead } from "@/components/crm/lead-list";
-import { Plus, Upload, Download } from "lucide-react";
+import { Plus, AlertCircle } from "lucide-react";
 
-const mockLeads: Lead[] = [
-  {
-    id: "1",
-    firstName: "John",
-    lastName: "Smith",
-    email: "john.smith@example.com",
-    phone: "+91 98765 43210",
-    source: "Website",
-    status: "new",
-    priority: "high",
-    assignedTo: "Rajesh Kumar",
-    createdAt: "2024-01-15T10:30:00Z",
-    updatedAt: "2024-01-15T10:30:00Z",
-  },
-  {
-    id: "2",
-    firstName: "Sarah",
-    lastName: "Johnson",
-    email: "sarah.j@example.com",
-    phone: "+91 98765 43211",
-    source: "Referral",
-    status: "contacted",
-    priority: "medium",
-    assignedTo: "Priya Sharma",
-    createdAt: "2024-01-14T14:20:00Z",
-    updatedAt: "2024-01-15T09:15:00Z",
-  },
-  {
-    id: "3",
-    firstName: "Raj",
-    lastName: "Patel",
-    email: "raj.patel@example.com",
-    phone: "+91 98765 43212",
-    source: "Cold Call",
-    status: "qualified",
-    priority: "low",
-    assignedTo: "Amit Verma",
-    createdAt: "2024-01-13T09:45:00Z",
-    updatedAt: "2024-01-14T16:30:00Z",
-  },
-  {
-    id: "4",
-    firstName: "Priya",
-    lastName: "Gupta",
-    email: "priya.g@example.com",
-    phone: "+91 98765 43213",
-    source: "Social Media",
-    status: "converted",
-    priority: "high",
-    assignedTo: "Rajesh Kumar",
-    createdAt: "2024-01-12T11:00:00Z",
-    updatedAt: "2024-01-15T08:45:00Z",
-  },
-  {
-    id: "5",
-    firstName: "Amit",
-    lastName: "Singh",
-    email: "amit.s@example.com",
-    phone: "+91 98765 43214",
-    source: "Advertisement",
-    status: "new",
-    priority: "medium",
-    assignedTo: "Priya Sharma",
-    createdAt: "2024-01-11T15:30:00Z",
-    updatedAt: "2024-01-11T15:30:00Z",
-  },
+const PROFILE_STATUS_MAP: Record<string, string[]> = {
+  Marketing: ["NEW", "INCOMING"],
+  Presales: ["NEW", "INCOMING"],
+  SVC: ["PROSPECT", "SITE_VISIT_SCHEDULED"],
+  Sales: ["SITE_VISIT_SCHEDULED", "SITE_VISIT_HAPPENED"],
+  CRM: ["SITE_VISIT_HAPPENED", "BOOKED"],
+  Finance: ["BOOKED"],
+  Recovery: ["LOST"],
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  NEW: "New",
+  INCOMING: "Incoming",
+  PROSPECT: "Prospect",
+  SITE_VISIT_SCHEDULED: "Site Visit Scheduled",
+  SITE_VISIT_HAPPENED: "Site Visit Happened",
+  SALES: "Sales",
+  OPPORTUNITY: "Opportunity",
+  QUOTATION: "Quotation",
+  APPROVAL: "Approval",
+  BOOKING: "Booking",
+  DUPLICATE: "Duplicate",
+  LOST: "Lost",
+  BOOKED: "Booked",
+};
+
+const ALL_STATUSES = Object.keys(STATUS_LABELS);
+
+const SOURCE_OPTIONS = [
+  { label: "Website", value: "WEBSITE" },
+  { label: "Referral", value: "REFERRAL" },
+  { label: "Cold Call", value: "COLD_CALL" },
+  { label: "Advertisement", value: "ADVERTISEMENT" },
+  { label: "Social Media", value: "SOCIAL_MEDIA" },
+  { label: "Walk-in", value: "WALK_IN" },
 ];
 
+function getAllowedStatuses(profileName: string | null | undefined): string[] {
+  if (!profileName) return ALL_STATUSES;
+  return PROFILE_STATUS_MAP[profileName] || ALL_STATUSES;
+}
+
+function mapApiLeadToLead(apiLead: any): Lead {
+  const statusLower = (apiLead.status || "NEW").toLowerCase();
+  return {
+    id: apiLead.id,
+    firstName: apiLead.firstName || "",
+    lastName: apiLead.lastName || "",
+    email: apiLead.email || "",
+    phone: apiLead.phone || "",
+    source: apiLead.source || "",
+    status: statusLower,
+    priority: "medium",
+    assignedTo: apiLead.owner
+      ? `${apiLead.owner.firstName} ${apiLead.owner.lastName}`
+      : "",
+    createdAt: apiLead.createdAt,
+    updatedAt: apiLead.updatedAt,
+  };
+}
+
 export default function LeadsPage() {
-  const [leads, setLeads] = React.useState<Lead[]>(mockLeads);
-  const [isLoading, setIsLoading] = React.useState(false);
+  const { profile, hasPermission } = useAuth();
+  const router = useRouter();
+  const [leads, setLeads] = React.useState<Lead[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
   const [currentPage, setCurrentPage] = React.useState(1);
+  const [totalItems, setTotalItems] = React.useState(0);
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("");
+  const [sourceFilter, setSourceFilter] = React.useState("");
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
+
+  const allowedStatuses = React.useMemo(
+    () => getAllowedStatuses(profile?.name),
+    [profile?.name]
+  );
+
+  const canCreateLead = hasPermission("Lead", "create");
+
+  const fetchLeads = React.useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params: Record<string, any> = {
+        page: currentPage,
+        limit: 20,
+      };
+      if (search) params.search = search;
+      if (statusFilter) params.status = statusFilter;
+      if (sourceFilter) params.source = sourceFilter;
+      if (dateFrom) params.from = dateFrom;
+      if (dateTo) params.to = dateTo;
+
+      const res = await leadApi.list(params);
+      if (res.data.success && res.data.data) {
+        const items = Array.isArray(res.data.data)
+          ? res.data.data
+          : res.data.data.leads || [];
+        setLeads(items.map(mapApiLeadToLead));
+        setTotalItems(res.data.pagination?.total || items.length);
+      } else {
+        setError(res.data.error || "Failed to load leads");
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "Failed to load leads");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, search, statusFilter, sourceFilter, dateFrom, dateTo]);
+
+  React.useEffect(() => {
+    fetchLeads();
+  }, [fetchLeads]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
 
   return (
     <div className="space-y-6">
@@ -87,28 +138,103 @@ export default function LeadsPage() {
             Manage your leads and track their progress
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline">
-            <Upload className="mr-2 h-4 w-4" />
-            Import
-          </Button>
-          <Button variant="outline">
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </Button>
-          <Button>
+        {canCreateLead && (
+          <Button onClick={() => router.push("/leads/new")}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Lead
+            Create Lead
           </Button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div>
+          <label className="text-sm font-medium">Search</label>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Search leads..."
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium">Status</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">All Statuses</option>
+            {allowedStatuses.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s] || s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm font-medium">Source</label>
+          <select
+            value={sourceFilter}
+            onChange={(e) => {
+              setSourceFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">All Sources</option>
+            {SOURCE_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm font-medium">From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium">To</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
         </div>
       </div>
 
       <LeadList
         leads={leads}
         isLoading={isLoading}
-        totalItems={leads.length}
+        totalItems={totalItems}
         currentPage={currentPage}
-        onPageChange={setCurrentPage}
+        onPageChange={handlePageChange}
       />
     </div>
   );

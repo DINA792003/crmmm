@@ -29,6 +29,7 @@ model Tenant {
   roles         Role[]
   profiles      Profile[]
   permissionSets PermissionSet[]
+  newPermissionSets NewPermissionSet[]
   queues        Queue[]
   auditLogs     AuditLog[]
   reports       Report[]
@@ -69,7 +70,12 @@ model User {
   phone         String?
   avatar        String?
   isActive      Boolean  @default(true)
+  isSuperAdmin  Boolean  @default(false)
+  profileId     String?
+  profile       Profile? @relation(fields: [profileId], references: [id])
   lastLoginAt   DateTime?
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -89,6 +95,8 @@ model User {
   notifications Notification[]
   auditLogs     AuditLog[]
   ownedCustomRecords CustomRecord[]
+  permissionSetAssignments UserPermissionAssignment[]
+  directPermissions UserDirectPermission[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -132,10 +140,13 @@ model Profile {
   name          String
   description   String?
   isDefault     Boolean  @default(false)
+  leadStatusAccess Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  users         User[]
   permissionSets PermissionSet[]
+  profilePermissions UserProfilePermission[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -170,6 +181,98 @@ model PermissionSetRole {
   createdAt       DateTime      @default(now())
 
   @@unique([permissionSetId, roleId])
+}
+
+// ============================================
+// EFFECTIVE PERMISSION SYSTEM
+// ============================================
+
+model Permission {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  label       String
+  module      String
+  action      String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  profilePermissions   UserProfilePermission[]
+  permSetItems         NewPermissionSetItem[]
+  directUserPermissions UserDirectPermission[]
+
+  @@index([module])
+  @@index([module, action])
+}
+
+model NewPermissionSet {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       NewPermissionSetItem[]
+  userAssignments UserPermissionAssignment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model NewPermissionSetItem {
+  id              String            @id @default(cuid())
+  permissionSetId String
+  permissionSet   NewPermissionSet  @relation(fields: [permissionSetId], references: [id], onDelete: Cascade)
+  permissionId    String
+  permission      Permission        @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt       DateTime          @default(now())
+
+  @@unique([permissionSetId, permissionId])
+  @@index([permissionSetId])
+  @@index([permissionId])
+}
+
+model UserProfilePermission {
+  id           String   @id @default(cuid())
+  profileId    String
+  profile      Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@unique([profileId, permissionId])
+  @@index([profileId])
+  @@index([permissionId])
+}
+
+model UserPermissionAssignment {
+  id              String            @id @default(cuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionSetId String
+  permissionSet   NewPermissionSet  @relation(fields: [permissionSetId], references: [id], onDelete: Cascade)
+  createdAt       DateTime          @default(now())
+
+  @@unique([userId, permissionSetId])
+  @@index([userId])
+  @@index([permissionSetId])
+}
+
+model UserDirectPermission {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@index([permissionId])
 }
 
 model Queue {

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { authenticate } from '../middleware/auth';
+import { authenticate, AuthRequest } from '../middleware/auth';
+import { Response } from 'express';
 import { authorize } from '../middleware/authorization';
 import { auditLog } from '../middleware/audit';
 import { ApiResponse, PaginatedResponse } from '../types';
@@ -19,7 +20,7 @@ const unitSchema = z.object({
   bedrooms: z.number().int().min(0).optional(),
   bathrooms: z.number().int().min(0).optional(),
   price: z.number().min(0),
-  status: z.enum(['AVAILABLE', 'RESERVED', 'SOLD', 'MAINTENANCE']).optional(),
+  status: z.enum(['AVAILABLE', 'HOLD', 'RESERVED', 'BOOKED', 'SOLD', 'BLOCKED']).optional(),
   description: z.string().max(2000).optional(),
   features: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
@@ -27,7 +28,7 @@ const unitSchema = z.object({
 
 const updateUnitSchema = unitSchema.partial();
 
-router.get('/', authenticate, authorize('Unit', 'read'), async (req, res) => {
+router.get('/', authenticate, authorize('Unit', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId } = req.user!;
     const { 
@@ -60,7 +61,6 @@ router.get('/', authenticate, authorize('Unit', 'read'), async (req, res) => {
         OR: [
           { number: { contains: search as string, mode: 'insensitive' } },
           { type: { contains: search as string, mode: 'insensitive' } },
-          { description: { contains: search as string, mode: 'insensitive' } },
         ],
       }),
     };
@@ -96,7 +96,7 @@ router.get('/', authenticate, authorize('Unit', 'read'), async (req, res) => {
   }
 });
 
-router.get('/:id', authenticate, authorize('Unit', 'read'), async (req, res) => {
+router.get('/:id', authenticate, authorize('Unit', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId } = req.user!;
     const { id } = req.params;
@@ -104,7 +104,7 @@ router.get('/:id', authenticate, authorize('Unit', 'read'), async (req, res) => 
     const unit = await prisma.unit.findFirst({
       where: { id, tenantId },
       include: {
-        project: { select: { id: true, name: true, address: true, status: true } },
+        project: { select: { id: true, name: true, address: true } },
         bookings: { 
           select: { id: true, number: true, status: true, bookingDate: true, customer: { select: { firstName: true, lastName: true } } },
           orderBy: { createdAt: 'desc' },
@@ -123,7 +123,7 @@ router.get('/:id', authenticate, authorize('Unit', 'read'), async (req, res) => 
   }
 });
 
-router.post('/', authenticate, authorize('Unit', 'create'), async (req, res) => {
+router.post('/', authenticate, authorize('Unit', 'create'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const data = unitSchema.parse(req.body);
@@ -154,7 +154,6 @@ router.post('/', authenticate, authorize('Unit', 'create'), async (req, res) => 
         where: { id: data.projectId },
         data: { 
           totalUnits: { increment: 1 },
-          availableUnits: { increment: 1 },
           updatedAt: new Date(),
         },
       }),
@@ -171,7 +170,7 @@ router.post('/', authenticate, authorize('Unit', 'create'), async (req, res) => 
   }
 });
 
-router.put('/:id', authenticate, authorize('Unit', 'edit'), async (req, res) => {
+router.put('/:id', authenticate, authorize('Unit', 'edit'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const { id } = req.params;
@@ -233,7 +232,7 @@ router.put('/:id', authenticate, authorize('Unit', 'edit'), async (req, res) => 
   }
 });
 
-router.patch('/:id/status', authenticate, authorize('Unit', 'edit'), async (req, res) => {
+router.patch('/:id/status', authenticate, authorize('Unit', 'edit'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const { id } = req.params;
@@ -252,11 +251,6 @@ router.patch('/:id/status', authenticate, authorize('Unit', 'edit'), async (req,
       prisma.project.update({
         where: { id: existing.projectId },
         data: { 
-          availableUnits: status === 'AVAILABLE' 
-            ? { increment: 1 } 
-            : existing.status === 'AVAILABLE' 
-              ? { decrement: 1 } 
-              : undefined,
           updatedAt: new Date(),
         },
       }),
@@ -270,7 +264,7 @@ router.patch('/:id/status', authenticate, authorize('Unit', 'edit'), async (req,
   }
 });
 
-router.delete('/:id', authenticate, authorize('Unit', 'delete'), async (req, res) => {
+router.delete('/:id', authenticate, authorize('Unit', 'delete'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const { id } = req.params;
@@ -281,7 +275,7 @@ router.delete('/:id', authenticate, authorize('Unit', 'delete'), async (req, res
     }
 
     const hasBookings = await prisma.booking.count({ 
-      where: { unitId: id, status: { in: ['RESERVED', 'CONFIRMED'] } } 
+      where: { unitId: id, status: { in: ['PENDING', 'CONFIRMED'] } } 
     });
     if (hasBookings > 0) {
       return res.status(400).json({ 
@@ -296,7 +290,6 @@ router.delete('/:id', authenticate, authorize('Unit', 'delete'), async (req, res
         where: { id: existing.projectId },
         data: { 
           totalUnits: { decrement: 1 },
-          ...(existing.status === 'AVAILABLE' && { availableUnits: { decrement: 1 } }),
           updatedAt: new Date(),
         },
       }),

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface Booking {
   id: string;
@@ -175,6 +177,8 @@ const columns: ColumnDef<Booking>[] = [
 ];
 
 export default function BookingsPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [currentPage, setCurrentPage] = React.useState(1);
 
   return (
@@ -186,7 +190,7 @@ export default function BookingsPage() {
             Manage property bookings and reservations
           </p>
         </div>
-        <Button>
+        <Button onClick={() => toast({ title: "New Booking", description: "Create booking form coming soon" })}>
           <Plus className="mr-2 h-4 w-4" />
           New Booking
         </Button>

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { authenticate } from '../middleware/auth';
+import { authenticate, AuthRequest } from '../middleware/auth';
+import { Response } from 'express';
 import { authorize } from '../middleware/authorization';
 import { auditLog } from '../middleware/audit';
 import { ApiResponse, PaginatedResponse } from '../types';
@@ -29,7 +30,7 @@ const accountSchema = z.object({
 
 const updateAccountSchema = accountSchema.partial();
 
-router.get('/', authenticate, authorize('Account', 'read'), async (req, res) => {
+router.get('/', authenticate, authorize('Account', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId } = req.user!;
     const { page = 1, limit = 50, search, industry, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
@@ -78,7 +79,7 @@ router.get('/', authenticate, authorize('Account', 'read'), async (req, res) => 
   }
 });
 
-router.get('/:id', authenticate, authorize('Account', 'read'), async (req, res) => {
+router.get('/:id', authenticate, authorize('Account', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId } = req.user!;
     const { id } = req.params;
@@ -101,7 +102,7 @@ router.get('/:id', authenticate, authorize('Account', 'read'), async (req, res) 
   }
 });
 
-router.post('/', authenticate, authorize('Account', 'create'), async (req, res) => {
+router.post('/', authenticate, authorize('Account', 'create'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const data = accountSchema.parse(req.body);
@@ -124,7 +125,7 @@ router.post('/', authenticate, authorize('Account', 'create'), async (req, res) 
   }
 });
 
-router.put('/:id', authenticate, authorize('Account', 'edit'), async (req, res) => {
+router.put('/:id', authenticate, authorize('Account', 'edit'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const { id } = req.params;
@@ -151,7 +152,7 @@ router.put('/:id', authenticate, authorize('Account', 'edit'), async (req, res) 
   }
 });
 
-router.delete('/:id', authenticate, authorize('Account', 'delete'), async (req, res) => {
+router.delete('/:id', authenticate, authorize('Account', 'delete'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, id: userId } = req.user!;
     const { id } = req.params;

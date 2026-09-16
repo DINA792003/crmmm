@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface Project {
   id: string;
@@ -193,6 +195,8 @@ const columns: ColumnDef<Project>[] = [
 ];
 
 export default function ProjectsPage() {
+  const router = useRouter();
+  const { toast } = useToast();
   const [currentPage, setCurrentPage] = React.useState(1);
 
   return (
@@ -204,7 +208,7 @@ export default function ProjectsPage() {
             Manage your real estate projects and inventory
           </p>
         </div>
-        <Button>
+        <Button onClick={() => toast({ title: "New Project", description: "Create project form coming soon" })}>
           <Plus className="mr-2 h-4 w-4" />
           New Project
         </Button>

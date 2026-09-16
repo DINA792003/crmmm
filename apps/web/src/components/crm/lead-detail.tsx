@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   User,
   Phone,
@@ -50,6 +52,9 @@ interface LeadDetailProps {
 }
 
 export function LeadDetail({ lead, isLoading }: LeadDetailProps) {
+  const router = useRouter();
+  const { toast } = useToast();
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -86,8 +91,8 @@ export function LeadDetail({ lead, isLoading }: LeadDetailProps) {
           <p className="text-muted-foreground">Lead #{lead.id}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">Edit</Button>
-          <Button>Convert to Customer</Button>
+          <Button variant="outline" onClick={() => toast({ title: "Edit", description: "Edit lead form coming soon" })}>Edit</Button>
+          <Button onClick={() => toast({ title: "Convert", description: "Lead conversion coming soon" })}>Convert to Customer</Button>
         </div>
       </div>
 

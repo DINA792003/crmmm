@@ -1,14 +1,17 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@dct-crm/db';
+import { EffectivePermission } from '../services/effectivePermissions';
 
 export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
     tenantId: string;
+    isSuperAdmin: boolean;
   };
   tenantId?: string;
+  effectivePermissions?: EffectivePermission[];
 }
 
 export const authenticate = async (
@@ -27,11 +30,12 @@ export const authenticate = async (
       id: string;
       email: string;
       tenantId: string;
+      isSuperAdmin: boolean;
     };
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true, email: true, tenantId: true, isActive: true },
+      select: { id: true, email: true, tenantId: true, isActive: true, isSuperAdmin: true },
     });
 
     if (!user || !user.isActive) {
@@ -42,6 +46,7 @@ export const authenticate = async (
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
+      isSuperAdmin: user.isSuperAdmin,
     };
     req.tenantId = user.tenantId;
 
@@ -51,11 +56,11 @@ export const authenticate = async (
   }
 };
 
-export const generateToken = (user: { id: string; email: string; tenantId: string }) => {
+export const generateToken = (user: { id: string; email: string; tenantId: string; isSuperAdmin: boolean }) => {
   return jwt.sign(
-    { id: user.id, email: user.email, tenantId: user.tenantId },
+    { id: user.id, email: user.email, tenantId: user.tenantId, isSuperAdmin: user.isSuperAdmin },
     process.env.JWT_SECRET!,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+    { expiresIn: (process.env.JWT_EXPIRES_IN || '24h') as any }
   );
 };
 
