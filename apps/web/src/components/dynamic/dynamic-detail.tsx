@@ -97,7 +97,21 @@ export function DynamicDetail({
       !["id", "is_active", "created_by", "updated_at"].includes(f.name)
   );
 
-  const sections = layout?.sections || [
+  let parsedSections: { name: string; fields: string[] }[] = [];
+  if (layout?.sections) {
+    if (Array.isArray(layout.sections)) {
+      parsedSections = layout.sections;
+    } else if (typeof layout.sections === "string") {
+      try {
+        const parsed = JSON.parse(layout.sections);
+        if (Array.isArray(parsed)) {
+          parsedSections = parsed;
+        }
+      } catch {}
+    }
+  }
+
+  const sections = parsedSections.length > 0 ? parsedSections : [
     {
       name: "Details",
       fields: displayFields.filter(
@@ -129,7 +143,7 @@ export function DynamicDetail({
   const renderSection = (section: { name: string; fields: string[] }) => {
     const sectionFields = section.fields
       .map(getFieldByName)
-      .filter(Boolean) as FieldDefinition[];
+      .filter((f): f is FieldDefinition => !!f && !f.isSystemField);
 
     if (sectionFields.length === 0) return null;
 
@@ -151,7 +165,7 @@ export function DynamicDetail({
               >
                 <FieldDisplay
                   field={field}
-                  value={record.data?.[field.name] || record[field.name]}
+                  value={record.data?.[field.name] ?? record[field.name]}
                 />
               </div>
             ))}

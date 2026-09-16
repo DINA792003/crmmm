@@ -20,8 +20,14 @@ const router = Router();
 router.use(authenticate);
 
 async function checkObjectPermission(req: AuthRequest, objectName: string, action: 'create' | 'read' | 'update' | 'delete'): Promise<boolean> {
+  if (req.user?.isSuperAdmin) return true;
+
   const permissions = await getUserObjectPermissions(req.tenantId!, req.user!.id, objectName);
-  if (!permissions) return false;
+  if (!permissions) {
+    const { EffectivePermissionService } = await import('../services/effectivePermissions');
+    const hasFullAccess = await EffectivePermissionService.hasAnyPermission(req.user!.id, ['FULL_SYSTEM_ACCESS']);
+    return hasFullAccess;
+  }
 
   switch (action) {
     case 'create': return permissions.canCreate || permissions.modifyAll;

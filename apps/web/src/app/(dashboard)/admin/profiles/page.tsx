@@ -198,6 +198,7 @@ export default function ProfilesPage() {
         toast({ title: "Success", description: "Profile updated successfully" });
       }
       setDialogOpen(false);
+      setFormData(emptyForm);
       fetchProfiles();
     } catch (err: any) {
       toast({ title: "Error", description: err?.message || "Operation failed", variant: "destructive" as any });
@@ -527,73 +528,75 @@ export default function ProfilesPage() {
                 : "Update profile information and permissions."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Enter profile name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Enter description"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Lead Status Access</Label>
-              <ScrollArea className="h-48 rounded-md border p-3">
-                <div className="space-y-2">
-                  {LEAD_STATUSES.map((status) => (
-                    <div key={status.value} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={status.value}
-                        checked={formData.leadStatusAccess.includes(status.value)}
-                        onCheckedChange={() => toggleLeadStatus(status.value)}
-                      />
-                      <Label htmlFor={status.value} className="text-sm font-normal cursor-pointer">
-                        {status.label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-              {formData.leadStatusAccess.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {formData.leadStatusAccess.length} status(es) selected
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="status"
-                  checked={formData.status === "active"}
-                  onCheckedChange={(checked) =>
-                    setFormData((f) => ({ ...f, status: checked ? "active" : "inactive" }))
-                  }
+          <form onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Enter profile name"
                 />
-                <Label htmlFor="status" className="text-sm font-normal">
-                  {formData.status === "active" ? "Active" : "Inactive"}
-                </Label>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Input
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Enter description"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Lead Status Access</Label>
+                <ScrollArea className="h-48 rounded-md border p-3">
+                  <div className="space-y-2">
+                    {LEAD_STATUSES.map((status) => (
+                      <div key={status.value} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={status.value}
+                          checked={formData.leadStatusAccess.includes(status.value)}
+                          onCheckedChange={() => toggleLeadStatus(status.value)}
+                        />
+                        <Label htmlFor={status.value} className="text-sm font-normal cursor-pointer">
+                          {status.label}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+                {formData.leadStatusAccess.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {formData.leadStatusAccess.length} status(es) selected
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="status"
+                    checked={formData.status === "active"}
+                    onCheckedChange={(checked) =>
+                      setFormData((f) => ({ ...f, status: checked ? "active" : "inactive" }))
+                    }
+                  />
+                  <Label htmlFor="status" className="text-sm font-normal">
+                    {formData.status === "active" ? "Active" : "Inactive"}
+                  </Label>
+                </div>
               </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? "Saving..." : dialogMode === "create" ? "Create" : "Save Changes"}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button variant="outline" type="button" onClick={() => setDialogOpen(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving..." : dialogMode === "create" ? "Create" : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

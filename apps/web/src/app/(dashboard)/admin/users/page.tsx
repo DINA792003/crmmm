@@ -252,6 +252,7 @@ export default function UsersPage() {
         toast({ title: "Success", description: "User updated successfully" });
       }
       setDialogOpen(false);
+      setFormData(emptyForm);
       fetchUsers();
     } catch (err: any) {
       toast({ title: "Error", description: err?.message || "Operation failed", variant: "destructive" as any });
@@ -642,76 +643,78 @@ export default function UsersPage() {
                 : "Update user information."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Enter full name"
-              />
+          <form onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Enter full name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email *</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="Enter email address"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => setFormData((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="Enter phone number"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Profile</Label>
+                <Select
+                  value={formData.profile}
+                  onValueChange={(value) => setFormData((f) => ({ ...f, profile: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a profile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableProfiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(value: "active" | "inactive") =>
+                    setFormData((f) => ({ ...f, status: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
-                placeholder="Enter email address"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone</Label>
-              <Input
-                id="phone"
-                value={formData.phone}
-                onChange={(e) => setFormData((f) => ({ ...f, phone: e.target.value }))}
-                placeholder="Enter phone number"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Profile</Label>
-              <Select
-                value={formData.profile}
-                onValueChange={(value) => setFormData((f) => ({ ...f, profile: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a profile" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableProfiles.map((profile) => (
-                    <SelectItem key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value: "active" | "inactive") =>
-                  setFormData((f) => ({ ...f, status: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          </form>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
+            <Button type="submit" disabled={saving}>
               {saving ? "Saving..." : dialogMode === "create" ? "Create" : "Save Changes"}
             </Button>
           </DialogFooter>

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -198,12 +199,13 @@ export function DynamicTable({
   canDelete = true,
   basePath,
 }: DynamicTableProps) {
+  const router = useRouter();
   const displayFields = fields.filter(
     (f) => f.visible && !["id", "is_active", "created_by", "updated_at"].includes(f.name)
   );
 
   const columns: ColumnDef<any>[] = [
-    ...displayFields.slice(0, 6).map((field) => ({
+    ...displayFields.slice(0, 8).map((field) => ({
       accessorKey: `data.${field.name}`,
       header: field.label,
       cell: ({ row }: { row: any }) => {
@@ -227,9 +229,11 @@ export function DynamicTable({
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={() =>
-                  basePath
-                    ? (window.location.href = `${basePath}/${record.id}`)
-                    : onView?.(record)
+                  onView
+                    ? onView(record)
+                    : basePath
+                    ? router.push(`${basePath}/${record.id}`)
+                    : undefined
                 }
               >
                 <Eye className="mr-2 h-4 w-4" />

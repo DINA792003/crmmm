@@ -20,10 +20,12 @@ export interface Lead {
   id: string;
   firstName: string;
   lastName: string;
+  company: string;
   email: string;
   phone: string;
   source: string;
   status: string;
+  rating?: string;
   priority: string;
   assignedTo: string;
   createdAt: string;
@@ -89,6 +91,10 @@ export const leadColumns: ColumnDef<Lead>[] = [
         </Link>
       );
     },
+  },
+  {
+    accessorKey: "company",
+    header: "Company",
   },
   {
     accessorKey: "email",

@@ -58,8 +58,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   boxes: Boxes,
 };
 
-function getNavigationByProfile(profileName: string | undefined, hasEffectivePermission: (perm: string) => boolean): NavItem[] {
-  const isAdminOrManager = profileName === "Admin" || profileName === "Manager" || profileName === "CRM Admin";
+function getNavigationByProfile(profileName: string | undefined, roles: string[], hasEffectivePermission: (perm: string) => boolean): NavItem[] {
+  const isAdminOrManager = profileName === "Admin" || profileName === "Manager" || profileName === "CRM Admin" || roles.includes("Admin") || roles.includes("Manager") || roles.includes("CRM Admin");
 
   const allItems: NavItem[] = [
     { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -141,7 +141,7 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { profile, hasEffectivePermission } = useAuth();
+  const { profile, roles, hasEffectivePermission } = useAuth();
   const [expandedItems, setExpandedItems] = React.useState<string[]>([]);
   const [customObjects, setCustomObjects] = React.useState<NavItem[]>([]);
 
@@ -176,7 +176,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     }
   };
 
-  const staticNavigation = getNavigationByProfile(profile?.name, hasEffectivePermission);
+  const staticNavigation = getNavigationByProfile(profile?.name, roles, hasEffectivePermission);
   const navigation = [...staticNavigation, ...customObjects];
 
   const toggleExpanded = (title: string) => {

@@ -118,6 +118,7 @@ interface FieldDef {
   isActive: boolean;
   isSystemField: boolean;
   isCustomField: boolean;
+  isStandardField: boolean;
   displayOrder: number;
   minLength?: number;
   maxLength?: number;
@@ -644,6 +645,8 @@ export default function ObjectSettingsPage() {
                           <TableCell className="text-center">
                             {field.isSystemField ? (
                               <Badge variant="secondary" className="text-xs">System</Badge>
+                            ) : field.isStandardField ? (
+                              <Badge variant="default" className="text-xs bg-blue-600">Standard</Badge>
                             ) : field.isActive ? (
                               <Badge variant="default" className="text-xs bg-green-600">Active</Badge>
                             ) : (
@@ -651,7 +654,7 @@ export default function ObjectSettingsPage() {
                             )}
                           </TableCell>
                           <TableCell className="text-right">
-                            {!field.isSystemField && (
+                            {!field.isSystemField && !field.isStandardField && (
                               <div className="flex justify-end gap-1">
                                 <Button variant="ghost" size="sm" onClick={() => openEditDialog(field)}>
                                   <Pencil className="h-4 w-4" />
@@ -793,6 +796,7 @@ export default function ObjectSettingsPage() {
             <DialogTitle>{editField ? `Edit ${editField.label}` : "Create New Field"}</DialogTitle>
           </DialogHeader>
 
+          <form onSubmit={(e) => { e.preventDefault(); editField ? handleUpdateField() : handleCreateField(); }}>
           {formErrors.submit && (
             <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-md">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -828,7 +832,7 @@ export default function ObjectSettingsPage() {
                   <Label>API Name</Label>
                   <Input
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                     placeholder="Auto-generated from label"
                     disabled={!!editField}
                     className={formErrors.name ? "border-destructive" : ""}
@@ -843,7 +847,7 @@ export default function ObjectSettingsPage() {
                 </Label>
                 <Select
                   value={formData.fieldType}
-                  onValueChange={(v) => setFormData({ ...formData, fieldType: v })}
+                  onValueChange={(v) => setFormData((prev) => ({ ...prev, fieldType: v }))}
                   disabled={!!editField}
                 >
                   <SelectTrigger className={formErrors.fieldType ? "border-destructive" : ""}>
@@ -878,7 +882,7 @@ export default function ObjectSettingsPage() {
                 <Label>Description</Label>
                 <Textarea
                   value={formData.description}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                   placeholder="Optional description for documentation"
                   rows={2}
                 />
@@ -888,7 +892,7 @@ export default function ObjectSettingsPage() {
                 <Label>Help Text</Label>
                 <Input
                   value={formData.helpText}
-                  onChange={(e) => setFormData({ ...formData, helpText: e.target.value })}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, helpText: e.target.value }))}
                   placeholder="Shown below the field to guide users"
                 />
               </div>
@@ -904,42 +908,42 @@ export default function ObjectSettingsPage() {
                   <Label>Required</Label>
                   <Switch
                     checked={formData.required}
-                    onCheckedChange={(v: boolean) => setFormData({ ...formData, required: v })}
+                    onCheckedChange={(v: boolean) => setFormData((prev) => ({ ...prev, required: v }))}
                   />
                 </div>
                 <div className="flex items-center justify-between">
                   <Label>Unique</Label>
                   <Switch
                     checked={formData.unique}
-                    onCheckedChange={(v: boolean) => setFormData({ ...formData, unique: v })}
+                    onCheckedChange={(v: boolean) => setFormData((prev) => ({ ...prev, unique: v }))}
                   />
                 </div>
                 <div className="flex items-center justify-between">
                   <Label>Searchable</Label>
                   <Switch
                     checked={formData.searchable}
-                    onCheckedChange={(v: boolean) => setFormData({ ...formData, searchable: v })}
+                    onCheckedChange={(v: boolean) => setFormData((prev) => ({ ...prev, searchable: v }))}
                   />
                 </div>
                 <div className="flex items-center justify-between">
                   <Label>Filterable</Label>
                   <Switch
                     checked={formData.filterable}
-                    onCheckedChange={(v: boolean) => setFormData({ ...formData, filterable: v })}
+                    onCheckedChange={(v: boolean) => setFormData((prev) => ({ ...prev, filterable: v }))}
                   />
                 </div>
                 <div className="flex items-center justify-between">
                   <Label>Sortable</Label>
                   <Switch
                     checked={formData.sortable}
-                    onCheckedChange={(v: boolean) => setFormData({ ...formData, sortable: v })}
+                    onCheckedChange={(v: boolean) => setFormData((prev) => ({ ...prev, sortable: v }))}
                   />
                 </div>
                 <div className="flex items-center justify-between">
                   <Label>Default Value</Label>
                   <Input
                     value={formData.defaultValue}
-                    onChange={(e) => setFormData({ ...formData, defaultValue: e.target.value })}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, defaultValue: e.target.value }))}
                     placeholder="Optional"
                     className="h-8"
                   />
@@ -961,7 +965,7 @@ export default function ObjectSettingsPage() {
                         <Input
                           type="number"
                           value={formData.minLength}
-                          onChange={(e) => setFormData({ ...formData, minLength: e.target.value })}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, minLength: e.target.value }))}
                           placeholder="No minimum"
                         />
                       </div>
@@ -970,7 +974,7 @@ export default function ObjectSettingsPage() {
                         <Input
                           type="number"
                           value={formData.maxLength}
-                          onChange={(e) => setFormData({ ...formData, maxLength: e.target.value })}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, maxLength: e.target.value }))}
                           placeholder="No maximum"
                         />
                       </div>
@@ -984,7 +988,7 @@ export default function ObjectSettingsPage() {
                         <Input
                           type="number"
                           value={formData.minValue}
-                          onChange={(e) => setFormData({ ...formData, minValue: e.target.value })}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, minValue: e.target.value }))}
                           placeholder="No minimum"
                           className={formErrors.minValue ? "border-destructive" : ""}
                         />
@@ -995,7 +999,7 @@ export default function ObjectSettingsPage() {
                         <Input
                           type="number"
                           value={formData.maxValue}
-                          onChange={(e) => setFormData({ ...formData, maxValue: e.target.value })}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, maxValue: e.target.value }))}
                           placeholder="No maximum"
                         />
                       </div>
@@ -1006,7 +1010,7 @@ export default function ObjectSettingsPage() {
                             <Input
                               type="number"
                               value={formData.precision}
-                              onChange={(e) => setFormData({ ...formData, precision: e.target.value })}
+                              onChange={(e) => setFormData((prev) => ({ ...prev, precision: e.target.value }))}
                               placeholder="e.g., 10"
                             />
                           </div>
@@ -1015,7 +1019,7 @@ export default function ObjectSettingsPage() {
                             <Input
                               type="number"
                               value={formData.scale}
-                              onChange={(e) => setFormData({ ...formData, scale: e.target.value })}
+                              onChange={(e) => setFormData((prev) => ({ ...prev, scale: e.target.value }))}
                               placeholder="e.g., 2"
                             />
                           </div>
@@ -1030,7 +1034,7 @@ export default function ObjectSettingsPage() {
                         <Label>Related Object <span className="text-destructive">*</span></Label>
                         <Select
                           value={formData.lookupObject}
-                          onValueChange={(v) => setFormData({ ...formData, lookupObject: v })}
+                          onValueChange={(v) => setFormData((prev) => ({ ...prev, lookupObject: v }))}
                         >
                           <SelectTrigger className={formErrors.lookupObject ? "border-destructive" : ""}>
                             <SelectValue placeholder="Select object..." />
@@ -1047,7 +1051,7 @@ export default function ObjectSettingsPage() {
                         <Label>Display Field</Label>
                         <Input
                           value={formData.lookupField}
-                          onChange={(e) => setFormData({ ...formData, lookupField: e.target.value })}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, lookupField: e.target.value }))}
                           placeholder="e.g., name"
                         />
                       </div>
@@ -1126,10 +1130,11 @@ export default function ObjectSettingsPage() {
             >
               Cancel
             </Button>
-            <Button onClick={editField ? handleUpdateField : handleCreateField} disabled={isSaving}>
+            <Button type="submit" disabled={isSaving}>
               {isSaving ? "Saving..." : editField ? "Save Changes" : "Create Field"}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -1141,6 +1146,7 @@ export default function ObjectSettingsPage() {
             <AlertDialogDescription>
               This will permanently delete the <strong>{deleteField?.label}</strong> field.
               {deleteField?.isSystemField && " System fields cannot be deleted."}
+              {deleteField?.isStandardField && " Standard fields cannot be deleted."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

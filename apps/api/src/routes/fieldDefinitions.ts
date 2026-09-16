@@ -246,6 +246,10 @@ router.put('/:objectName/:fieldId', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, error: 'System fields cannot be modified' });
     }
 
+    if (existingField.isStandardField) {
+      return res.status(400).json({ success: false, error: 'Standard fields cannot be modified' });
+    }
+
     const {
       label, description, helpText,
       required, unique, defaultValue,
@@ -435,6 +439,10 @@ router.delete('/:objectName/:fieldId', async (req: AuthRequest, res: Response) =
 
     if (existingField.isSystemField) {
       return res.status(400).json({ success: false, error: 'System fields cannot be deleted' });
+    }
+
+    if (existingField.isStandardField) {
+      return res.status(400).json({ success: false, error: 'Standard fields cannot be deleted' });
     }
 
     const recordCount = await prisma.customRecord.count({

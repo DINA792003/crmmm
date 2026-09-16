@@ -191,6 +191,7 @@ export default function ObjectManagerPage() {
 
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }}>
           <DialogHeader>
             <DialogTitle>Create New Object</DialogTitle>
           </DialogHeader>
@@ -251,12 +252,13 @@ export default function ObjectManagerPage() {
               Cancel
             </Button>
             <Button
-              onClick={handleCreate}
+              type="submit"
               disabled={!newObject.name || !newObject.label || !newObject.pluralLabel}
             >
               Create Object
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

@@ -322,8 +322,43 @@ enum LeadSource {
   ADVERTISEMENT
   WALK_IN
   PORTAL
-  SOCIAL_MEDIA
+  INSTAGRAM
+  TWITTER
+  WHATSAPP
+  YOUTUBE
   OTHER
+}
+
+enum Salutation {
+  MR
+  MS
+  MRS
+  DR
+  PROF
+}
+
+enum Industry {
+  TECHNOLOGY
+  HEALTHCARE
+  FINANCE
+  EDUCATION
+  MANUFACTURING
+  RETAIL
+  REAL_ESTATE
+  CONSTRUCTION
+  HOSPITALITY
+  AUTOMOTIVE
+  ENERGY
+  TELECOMMUNICATIONS
+  MEDIA
+  GOVERNMENT
+  OTHER
+}
+
+enum Rating {
+  HOT
+  WARM
+  COLD
 }
 
 model Lead {
@@ -338,23 +373,45 @@ model Lead {
   queue         Queue?     @relation(fields: [queueId], references: [id])
   projectId     String?
   project       Project?   @relation(fields: [projectId], references: [id])
-  
-  firstName     String
-  lastName      String?
-  email         String?
-  phone         String
-  source        LeadSource @default(OTHER)
-  status        LeadStatus @default(NEW)
-  score         Int        @default(0)
-  budget        Float?
-  requirements  String?
-  notes         String?
-  
+
+  // Standard Lead Fields - Contact Information
+  salutation   Salutation?
+  firstName    String?
+  lastName     String
+  title        String?
+  email        String?
+  phone        String?
+  mobile       String?
+  website      String?
+
+  // Standard Lead Fields - Company Information
+  company      String
+  industry     Industry?
+  annualRevenue Float?
+  numberOfEmployees Int?
+
+  // Standard Lead Fields - Lead Management
+  source       LeadSource @default(OTHER)
+  status       LeadStatus @default(NEW)
+  rating       Rating?
+  description  String?
+  score        Int        @default(0)
+  budget       Float?
+  requirements String?
+  notes        String?
+
+  // Standard Lead Fields - Address
+  street       String?
+  city         String?
+  stateProvince String?
+  country      String?
+  postalCode   String?
+
   // Duplicate detection
   duplicateOfId String?
   duplicateOf   Lead?      @relation("LeadDuplicates", fields: [duplicateOfId], references: [id])
   duplicates    Lead[]     @relation("LeadDuplicates")
-  
+
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -374,6 +431,7 @@ model Lead {
   @@index([tenantId, ownerId])
   @@index([tenantId, phone])
   @@index([tenantId, email])
+  @@index([tenantId, company])
 }
 
 model Contact {
@@ -1106,6 +1164,7 @@ model FieldDefinition {
   isActive      Boolean  @default(true)
   isSystemField Boolean  @default(false)
   isCustomField Boolean  @default(true)
+  isStandardField Boolean @default(false)
   
   displayOrder  Int      @default(0)
   

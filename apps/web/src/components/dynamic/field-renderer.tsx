@@ -116,7 +116,18 @@ function LookupField({
   const [selectedLabel, setSelectedLabel] = React.useState("");
 
   React.useEffect(() => {
-    if (value && !selectedLabel) {
+    if (!value) {
+      setSelectedLabel("");
+      return;
+    }
+    if (selectedLabel && String(value) === selectedLabel) return;
+    if (lookupSearchFn) {
+      lookupSearchFn(String(value)).then((results) => {
+        const match = results.find((r) => r.id === String(value));
+        if (match) setSelectedLabel(match.label);
+        else setSelectedLabel(String(value));
+      }).catch(() => setSelectedLabel(String(value)));
+    } else {
       setSelectedLabel(String(value));
     }
   }, [value]);
@@ -138,13 +149,30 @@ function LookupField({
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className="w-full justify-start text-left font-normal h-10"
-          disabled={disabled}
-        >
-          {selectedLabel || `Search ${field.label}...`}
-        </Button>
+        <div className="flex items-center">
+          <Button
+            variant="outline"
+            className="flex-1 justify-start text-left font-normal h-10 rounded-r-none"
+            disabled={disabled}
+          >
+            {selectedLabel || `Search ${field.label}...`}
+          </Button>
+          {selectedLabel && !disabled && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 shrink-0 rounded-l-none border-l-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange(null);
+                setSelectedLabel("");
+              }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
         <div className="border-b p-2">
@@ -423,13 +451,18 @@ export function FieldRenderer({
         return (
           <Select
             value={value || ""}
-            onValueChange={(val) => onChange(val || null)}
+            onValueChange={(val) => onChange(val === "__none__" ? null : val)}
             disabled={isDisabled}
           >
             <SelectTrigger>
               <SelectValue placeholder={`Select ${field.label.toLowerCase()}...`} />
             </SelectTrigger>
             <SelectContent>
+              {value && (
+                <SelectItem value="__none__">
+                  None
+                </SelectItem>
+              )}
               {field.picklistValues
                 ?.filter((pv) => pv.isActive)
                 .map((pv) => (

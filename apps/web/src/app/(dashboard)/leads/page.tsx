@@ -41,7 +41,8 @@ const SOURCE_OPTIONS = [
   { label: "Referral", value: "REFERRAL" },
   { label: "Cold Call", value: "COLD_CALL" },
   { label: "Advertisement", value: "ADVERTISEMENT" },
-  { label: "Social Media", value: "SOCIAL_MEDIA" },
+  { label: "Instagram", value: "INSTAGRAM" },
+  { label: "WhatsApp", value: "WHATSAPP" },
   { label: "Walk-in", value: "WALK_IN" },
 ];
 
@@ -56,10 +57,12 @@ function mapApiLeadToLead(apiLead: any): Lead {
     id: apiLead.id,
     firstName: apiLead.firstName || "",
     lastName: apiLead.lastName || "",
+    company: apiLead.company || "",
     email: apiLead.email || "",
     phone: apiLead.phone || "",
     source: apiLead.source || "",
     status: statusLower,
+    rating: apiLead.rating || "",
     priority: "medium",
     assignedTo: apiLead.owner
       ? `${apiLead.owner.firstName} ${apiLead.owner.lastName}`

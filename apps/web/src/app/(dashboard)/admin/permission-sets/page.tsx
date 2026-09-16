@@ -540,6 +540,7 @@ export default function PermissionSetsPage() {
               Create a new permission set by selecting the appropriate permissions for each module.
             </DialogDescription>
           </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }}>
           <ScrollArea className="flex-1 max-h-[60vh] pr-4">
             <div className="space-y-6 py-4">
               <div className="space-y-2">
@@ -641,12 +642,13 @@ export default function PermissionSetsPage() {
               Cancel
             </Button>
             <Button
-              onClick={handleCreate}
+              type="submit"
               disabled={!formData.name.trim() || submitting}
             >
               {submitting ? "Creating..." : "Create Permission Set"}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -658,6 +660,7 @@ export default function PermissionSetsPage() {
               Update the permission set details and permissions.
             </DialogDescription>
           </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); handleEdit(); }}>
           {formLoading ? (
             <div className="py-12 text-center text-muted-foreground">Loading...</div>
           ) : (
@@ -767,7 +770,7 @@ export default function PermissionSetsPage() {
                   Cancel
                 </Button>
                 <Button
-                  onClick={handleEdit}
+                  type="submit"
                   disabled={!formData.name.trim() || submitting}
                 >
                   {submitting ? "Updating..." : "Update Permission Set"}
@@ -775,6 +778,7 @@ export default function PermissionSetsPage() {
               </DialogFooter>
             </>
           )}
+          </form>
         </DialogContent>
       </Dialog>
 

@@ -112,14 +112,29 @@ const STATUS_ORDER = [
 
 interface LeadData {
   id: string;
-  firstName: string;
+  salutation?: string;
+  firstName?: string;
   lastName: string;
-  email: string;
-  phone: string;
-  alternatePhone?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  website?: string;
+  company: string;
+  industry?: string;
+  annualRevenue?: number;
+  numberOfEmployees?: number;
   source: string;
   status: string;
+  rating?: string;
+  description?: string;
+  score?: number;
   budget?: number;
+  street?: string;
+  city?: string;
+  stateProvince?: string;
+  country?: string;
+  postalCode?: string;
   requirements?: string;
   notes?: string;
   owner?: { id: string; firstName: string; lastName: string };
@@ -449,17 +464,63 @@ export default function LeadDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-3">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">{lead.salutation ? `${lead.salutation} ` : ""}{lead.firstName || ""} {lead.lastName}</span>
+                </div>
+                {lead.title && (
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">{lead.title}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
                   <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{lead.email}</span>
+                  <span className="text-sm">{lead.email || "—"}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{lead.phone}</span>
+                  <span className="text-sm">{lead.phone || "—"}</span>
                 </div>
-                {lead.alternatePhone && (
+                {lead.mobile && (
                   <div className="flex items-center gap-3">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{lead.alternatePhone}</span>
+                    <span className="text-sm">{lead.mobile}</span>
+                  </div>
+                )}
+                {lead.website && (
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <a href={lead.website} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">{lead.website}</a>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Company Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Company</span>
+                  <span className="text-sm font-medium">{lead.company}</span>
+                </div>
+                {lead.industry && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Industry</span>
+                    <Badge variant="secondary">{lead.industry}</Badge>
+                  </div>
+                )}
+                {lead.annualRevenue && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Annual Revenue</span>
+                    <span className="text-sm font-medium">₹{lead.annualRevenue.toLocaleString()}</span>
+                  </div>
+                )}
+                {lead.numberOfEmployees && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Employees</span>
+                    <span className="text-sm font-medium">{lead.numberOfEmployees.toLocaleString()}</span>
                   </div>
                 )}
               </CardContent>
@@ -480,6 +541,14 @@ export default function LeadDetailPage() {
                   <span className="text-sm text-muted-foreground">Source</span>
                   <Badge variant="secondary">{lead.source}</Badge>
                 </div>
+                {lead.rating && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Rating</span>
+                    <Badge variant={lead.rating === "HOT" ? "destructive" : lead.rating === "WARM" ? "warning" : "outline"}>
+                      {lead.rating}
+                    </Badge>
+                  </div>
+                )}
                 {lead.budget && (
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Budget</span>
@@ -501,8 +570,36 @@ export default function LeadDetailPage() {
                 )}
               </CardContent>
             </Card>
+          </div>
 
+          {(lead.street || lead.city || lead.stateProvince || lead.country || lead.postalCode) && (
             <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Address</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">
+                    {[lead.street, lead.city, lead.stateProvince, lead.country, lead.postalCode].filter(Boolean).join(", ")}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {lead.description && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Description</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm whitespace-pre-wrap">{lead.description}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
               <CardHeader>
                 <CardTitle className="text-sm font-medium text-muted-foreground">Timeline</CardTitle>
               </CardHeader>
@@ -532,7 +629,6 @@ export default function LeadDetailPage() {
                 )}
               </CardContent>
             </Card>
-          </div>
 
           {lead.requirements && (
             <Card>
@@ -697,38 +793,40 @@ export default function LeadDetailPage() {
               This lead will be marked as Lost and moved to the Recovery workflow.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="recovery-reason">Reason *</Label>
-              <Select value={recoveryReason} onValueChange={setRecoveryReason}>
-                <SelectTrigger id="recovery-reason">
-                  <SelectValue placeholder="Select a reason" />
-                </SelectTrigger>
-                <SelectContent>
-                  {RECOVERY_REASONS.map((r) => (
-                    <SelectItem key={r} value={r}>{r}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <form onSubmit={(e) => { e.preventDefault(); handleMoveToRecovery(); }}>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="recovery-reason">Reason *</Label>
+                <Select value={recoveryReason} onValueChange={setRecoveryReason}>
+                  <SelectTrigger id="recovery-reason">
+                    <SelectValue placeholder="Select a reason" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RECOVERY_REASONS.map((r) => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="recovery-note">Note (optional)</Label>
+                <Textarea
+                  id="recovery-note"
+                  placeholder="Add any additional notes..."
+                  value={recoveryNote}
+                  onChange={(e) => setRecoveryNote(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="recovery-note">Note (optional)</Label>
-              <Textarea
-                id="recovery-note"
-                placeholder="Add any additional notes..."
-                value={recoveryNote}
-                onChange={(e) => setRecoveryNote(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
+            <DialogFooter>
             <Button variant="outline" onClick={() => setRecoveryDialogOpen(false)} disabled={isActionLoading}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleMoveToRecovery} disabled={isActionLoading}>
+            <Button variant="destructive" type="submit" disabled={isActionLoading}>
               {isActionLoading ? "Moving..." : "Move to Recovery"}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

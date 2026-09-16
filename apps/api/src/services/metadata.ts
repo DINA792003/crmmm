@@ -155,6 +155,11 @@ export async function getFieldPermissions(tenantId: string, roleId: string, obje
 }
 
 export async function getUserObjectPermissions(tenantId: string, userId: string, objectName: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true } });
+  if (user?.isSuperAdmin) {
+    return { canCreate: true, canRead: true, canUpdate: true, canDelete: true, viewAll: true, modifyAll: true };
+  }
+
   const object = await prisma.objectDefinition.findFirst({
     where: { tenantId, name: { equals: objectName, mode: 'insensitive' } },
   });

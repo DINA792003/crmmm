@@ -28,6 +28,7 @@
     "typecheck": "npm run typecheck --workspaces"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "concurrently": "^8.2.2",
     "typescript": "^5.4.5"
   },

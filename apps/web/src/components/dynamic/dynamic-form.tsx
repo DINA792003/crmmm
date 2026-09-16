@@ -33,21 +33,47 @@ export function DynamicForm({
   submitLabel = "Save",
   lookupSearchFn,
 }: DynamicFormProps) {
-  const [formData, setFormData] = React.useState<Record<string, any>>(initialData);
+  const [formData, setFormData] = React.useState<Record<string, any>>(
+    JSON.parse(JSON.stringify(initialData))
+  );
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
-    setFormData(initialData);
+    setFormData(JSON.parse(JSON.stringify(initialData)));
   }, [initialData]);
 
   const editableFields = fields.filter(
-    (f) => f.editable && !f.isSystemField && f.name !== "id" && f.name !== "record_number" && f.name !== "created_by" && f.name !== "created_at" && f.name !== "updated_at" && f.name !== "is_active"
+    (f) => f.editable !== false && !f.isSystemField && f.name !== "id" && f.name !== "record_number" && f.name !== "created_by" && f.name !== "created_at" && f.name !== "updated_at" && f.name !== "is_active"
   );
 
-  const sections = layout?.sections || [
-    { name: "Details", fields: editableFields.map((f) => f.name) },
-  ];
+  let parsedSections: { name: string; fields: string[] }[] = [];
+  if (layout?.sections) {
+    if (Array.isArray(layout.sections)) {
+      parsedSections = layout.sections;
+    } else if (typeof layout.sections === "string") {
+      try {
+        const parsed = JSON.parse(layout.sections);
+        if (Array.isArray(parsed)) {
+          parsedSections = parsed;
+        }
+      } catch {}
+    }
+  }
+
+  const fieldNamesInLayout = new Set(parsedSections.flatMap((s) => s.fields));
+  const missingEditable = editableFields.filter((f) => !fieldNamesInLayout.has(f.name));
+
+  if (parsedSections.length > 0 && missingEditable.length > 0) {
+    parsedSections = [
+      ...parsedSections,
+      { name: "Additional Fields", fields: missingEditable.map((f) => f.name) },
+    ];
+  }
+
+  const sections = parsedSections.length > 0
+    ? parsedSections
+    : [{ name: "Details", fields: editableFields.map((f) => f.name) }];
 
   const handleChange = (fieldName: string, value: any) => {
     setFormData((prev) => ({ ...prev, [fieldName]: value }));
@@ -71,15 +97,18 @@ export function DynamicForm({
       }
 
       if (value !== undefined && value !== null && value !== "") {
+        let hasTypeError = false;
         switch (field.fieldType) {
           case "email":
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value))) {
               newErrors[field.name] = `${field.label} must be a valid email`;
+              hasTypeError = true;
             }
             break;
           case "phone":
             if (!/^[\d\s\-+()]+$/.test(String(value))) {
               newErrors[field.name] = `${field.label} must be a valid phone number`;
+              hasTypeError = true;
             }
             break;
           case "url":
@@ -87,6 +116,7 @@ export function DynamicForm({
               new URL(String(value));
             } catch {
               newErrors[field.name] = `${field.label} must be a valid URL`;
+              hasTypeError = true;
             }
             break;
           case "number":
@@ -96,11 +126,12 @@ export function DynamicForm({
           case "percentage":
             if (isNaN(Number(value))) {
               newErrors[field.name] = `${field.label} must be a valid number`;
+              hasTypeError = true;
             }
             break;
         }
 
-        if (field.validationRules && typeof field.validationRules === "object") {
+        if (!hasTypeError && field.validationRules && typeof field.validationRules === "object") {
           const rules = field.validationRules as any;
           if (rules.minLength && String(value).length < rules.minLength) {
             newErrors[field.name] = `${field.label} must be at least ${rules.minLength} characters`;
@@ -124,6 +155,11 @@ export function DynamicForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next._submit;
+      return next;
+    });
     if (!validate()) return;
 
     setIsSubmitting(true);
@@ -144,7 +180,7 @@ export function DynamicForm({
   const renderSection = (section: { name: string; fields: string[] }) => {
     const sectionFields = section.fields
       .map(getFieldByName)
-      .filter(Boolean) as FieldDefinition[];
+      .filter((f): f is FieldDefinition => !!f && !f.isSystemField && f.editable !== false);
 
     if (sectionFields.length === 0) return null;
 
