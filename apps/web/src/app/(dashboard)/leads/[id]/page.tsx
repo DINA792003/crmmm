@@ -40,10 +40,7 @@ import {
   Map,
   TrendingUp,
   History,
-  ArrowRight,
   ArrowLeft,
-  CheckCircle2,
-  Circle,
   AlertTriangle,
 } from "lucide-react";
 
@@ -79,22 +76,6 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   BOOKED: "success",
 };
 
-const WORKFLOW_STAGES = [
-  { key: "Campaign", statuses: ["NEW", "INCOMING"] },
-  { key: "Lead Generation", statuses: ["NEW"] },
-  { key: "Lead Capture", statuses: ["NEW", "INCOMING"] },
-  { key: "Lead Assignment", statuses: ["INCOMING"] },
-  { key: "Presales", statuses: ["INCOMING", "PROSPECT"] },
-  { key: "Requirements", statuses: ["PROSPECT"] },
-  { key: "Qualification", statuses: ["PROSPECT"] },
-  { key: "Site Visit", statuses: ["SITE_VISIT_SCHEDULED", "SITE_VISIT_HAPPENED"] },
-  { key: "Sales", statuses: ["SALES", "SITE_VISIT_HAPPENED"] },
-  { key: "Opportunity", statuses: ["OPPORTUNITY", "QUOTATION"] },
-  { key: "Booking", statuses: ["BOOKING", "APPROVAL"] },
-  { key: "Payment", statuses: ["BOOKED"] },
-  { key: "Finance", statuses: ["BOOKED"] },
-];
-
 const RECOVERY_REASONS = [
   "Not Interested",
   "Budget Issue",
@@ -102,12 +83,6 @@ const RECOVERY_REASONS = [
   "Property Not Suitable",
   "Customer Request",
   "Other",
-];
-
-const STATUS_ORDER = [
-  "NEW", "INCOMING", "PROSPECT", "SITE_VISIT_SCHEDULED",
-  "SITE_VISIT_HAPPENED", "SALES", "OPPORTUNITY", "QUOTATION",
-  "APPROVAL", "BOOKING", "BOOKED",
 ];
 
 interface LeadData {
@@ -148,11 +123,6 @@ interface LeadData {
   auditLogs?: any[];
   createdAt: string;
   updatedAt: string;
-}
-
-function getStatusIndex(status: string): number {
-  const idx = STATUS_ORDER.indexOf(status);
-  return idx >= 0 ? idx : -1;
 }
 
 export default function LeadDetailPage() {
@@ -371,37 +341,16 @@ export default function LeadDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Workflow Timeline */}
+      {/* Lead Status */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium text-muted-foreground">Workflow Progress</CardTitle>
+          <CardTitle className="text-sm font-medium text-muted-foreground">Lead Status</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-1 overflow-x-auto pb-2">
-            {WORKFLOW_STAGES.map((stage, idx) => {
-              const stageMaxIdx = Math.max(...stage.statuses.map(s => getStatusIndex(s)));
-              const leadIdx = getStatusIndex(status);
-              const isCompleted = stageMaxIdx >= 0 && leadIdx > stageMaxIdx;
-              const isCurrent = stage.statuses.includes(status);
-
-              return (
-                <React.Fragment key={stage.key}>
-                  <div className="flex flex-col items-center min-w-[80px]">
-                    <div className={`flex items-center justify-center w-8 h-8 rounded-full text-xs font-medium ${
-                      isCompleted ? "bg-green-500 text-white" : isCurrent ? "bg-blue-500 text-white" : "bg-muted text-muted-foreground"
-                    }`}>
-                      {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : isCurrent ? <ArrowRight className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
-                    </div>
-                    <span className={`text-[10px] mt-1 text-center ${isCurrent ? "font-semibold text-blue-600" : isCompleted ? "text-green-600" : "text-muted-foreground"}`}>
-                      {stage.key}
-                    </span>
-                  </div>
-                  {idx < WORKFLOW_STAGES.length - 1 && (
-                    <div className={`h-0.5 w-4 mt-[-12px] ${isCompleted ? "bg-green-500" : "bg-muted"}`} />
-                  )}
-                </React.Fragment>
-              );
-            })}
+          <div className="flex items-center gap-3">
+            <Badge variant={STATUS_VARIANT[status] || "outline"} className="text-sm px-3 py-1">
+              {STATUS_LABELS[status] || status}
+            </Badge>
           </div>
         </CardContent>
       </Card>
