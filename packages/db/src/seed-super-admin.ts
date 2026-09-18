@@ -13,6 +13,7 @@ async function main() {
       data: {
         name: 'Platform',
         slug: 'platform',
+        companyCode: 'PLATFORM',
         settings: { type: 'platform' },
       },
     });

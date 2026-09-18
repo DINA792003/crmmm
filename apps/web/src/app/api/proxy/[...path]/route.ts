@@ -33,21 +33,35 @@ async function proxyRequest(
 
   const response = await fetch(targetUrl, init);
 
-  const data = await response.text();
+  const responseDataContentType = response.headers.get('content-type') || '';
+  const isBinary = responseDataContentType.startsWith('image/') ||
+    responseDataContentType.startsWith('application/octet-stream') ||
+    responseDataContentType.includes('pdf') ||
+    responseDataContentType.includes('zip');
 
-  const res = new NextResponse(data, {
-    status: response.status,
-    statusText: response.statusText,
-  });
+  let res: NextResponse;
+
+  if (isBinary) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res = new NextResponse(buffer, {
+      status: response.status,
+      statusText: response.statusText,
+    });
+  } else {
+    const data = await response.text();
+    res = new NextResponse(data, {
+      status: response.status,
+      statusText: response.statusText,
+    });
+  }
 
   const setCookieHeader = response.headers.get('set-cookie');
   if (setCookieHeader) {
     res.headers.set('set-cookie', setCookieHeader);
   }
 
-  const contentTypeHeader = response.headers.get('content-type');
-  if (contentTypeHeader) {
-    res.headers.set('content-type', contentTypeHeader);
+  if (responseDataContentType) {
+    res.headers.set('content-type', responseDataContentType);
   }
 
   return res;
@@ -110,6 +124,22 @@ export async function DELETE(
     return await proxyRequest('DELETE', path, request);
   } catch (error) {
     console.error('Proxy DELETE error:', error);
+    return NextResponse.json(
+      { success: false, error: 'Unable to connect to backend service' },
+      { status: 502 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { path: string[] } }
+) {
+  try {
+    const path = params.path.join('/');
+    return await proxyRequest('PATCH', path, request);
+  } catch (error) {
+    console.error('Proxy PATCH error:', error);
     return NextResponse.json(
       { success: false, error: 'Unable to connect to backend service' },
       { status: 502 }

@@ -24,7 +24,7 @@ import { activityRoutes as activityRouter } from './routes/activities';
 import { userRoutes as userRouter } from './routes/users';
 import { roleRoutes as roleRouter } from './routes/roles';
 import { profileRoutes as profileRouter } from './routes/profiles';
-import reportRouter from './routes/reports';
+import reportRouter, { reportFolderRouter } from './routes/reports';
 import { dashboardRoutes as dashboardRouter } from './routes/dashboards';
 import { searchRoutes as searchRouter } from './routes/search';
 import { analyticsRoutes as analyticsRouter } from './routes/analytics';
@@ -45,6 +45,7 @@ import { newPermissionSetRoutes as newPermissionSetRouter } from './routes/permi
 import { userPermissionRoutes as userPermissionRouter } from './routes/userPermissions';
 import { effectivePermissionRoutes as effectivePermissionRouter } from './routes/effectivePermissions';
 import { profilePermissionRoutes as profilePermissionRouter } from './routes/profilePermissions';
+import { companyRoutes as companyRouter } from './routes/companies';
 
 dotenv.config({ path: __dirname + '/../.env' });
 
@@ -93,12 +94,14 @@ app.use('/api/users', userRouter);
 app.use('/api/roles', roleRouter);
 app.use('/api/profiles', profileRouter);
 app.use('/api/reports', reportRouter);
+app.use('/api/report-folders', reportFolderRouter);
 app.use('/api/dashboards', dashboardRouter);
 app.use('/api/search', searchRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/workflows', workflowRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/super-admin', companyRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/objects', objectDefinitionRouter);
@@ -116,7 +119,9 @@ app.use('/api/profile-permissions', profilePermissionRouter);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', err);
-  res.status(500).json({ success: false, error: 'Internal server error' });
+  if (!res.headersSent) {
+    res.status(500).json({ success: false, error: 'Internal server error', detail: err?.message });
+  }
 });
 
 app.listen(PORT, () => {

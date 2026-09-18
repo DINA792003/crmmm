@@ -567,3 +567,36 @@ export const profilePermissionApi = {
 };
 
 export default api;
+
+// Company Management API (Super Admin)
+export const companyApi = {
+  list: (params?: Record<string, any>) =>
+    api.get<ApiResponse>('/api/super-admin/companies', { params }),
+  get: (id: string) =>
+    api.get<ApiResponse>(`/api/super-admin/companies/${id}`),
+  create: (data: any) =>
+    api.post<ApiResponse>('/api/super-admin/companies', data),
+  update: (id: string, data: any) =>
+    api.put<ApiResponse>(`/api/super-admin/companies/${id}`, data),
+  delete: (id: string) =>
+    api.delete<ApiResponse>(`/api/super-admin/companies/${id}`),
+  activate: (id: string) =>
+    api.put<ApiResponse>(`/api/super-admin/companies/${id}/activate`),
+  deactivate: (id: string) =>
+    api.put<ApiResponse>(`/api/super-admin/companies/${id}/deactivate`),
+  uploadLogo: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('logo', file);
+    return api.post<ApiResponse>(`/api/super-admin/companies/${id}/logo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  removeLogo: (id: string) =>
+    api.delete<ApiResponse>(`/api/super-admin/companies/${id}/logo`),
+  getCapacity: (id: string) =>
+    api.get<ApiResponse>(`/api/super-admin/companies/${id}/capacity`),
+  updateCapacity: (id: string, data: { maxTotalUsers?: number; maxAdminUsers?: number }) =>
+    api.put<ApiResponse>(`/api/super-admin/companies/${id}/capacity`, data),
+  updatePackage: (id: string, data: { packageName?: string | null; packageStatus?: string; packageStartDate?: string | null; packageExpiryDate?: string | null; packageNotes?: string | null }) =>
+    api.put<ApiResponse>(`/api/super-admin/companies/${id}/package`, data),
+};

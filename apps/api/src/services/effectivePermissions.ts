@@ -20,10 +20,14 @@ export class EffectivePermissionService {
   static async getEffectivePermissions(userId: string): Promise<EffectivePermission[]> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, profileId: true, tenantId: true, isActive: true },
+      select: { id: true, profileId: true, tenantId: true, isActive: true, isSuperAdmin: true },
     });
 
     if (!user || !user.isActive) return [];
+
+    if (user.isSuperAdmin) {
+      return this.getAllSystemPermissions();
+    }
 
     const [profilePerms, permSetPerms, directPerms, legacyPerms] = await Promise.all([
       this.getProfilePermissions(user.profileId),

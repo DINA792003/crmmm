@@ -28,6 +28,7 @@ export interface AuthContextType {
   effectivePermissionsByModule: Record<string, string[]>;
   hasFullAccess: boolean;
   isSuperAdmin: boolean;
+  isAdmin: boolean;
   tenant: { id: string; name: string; slug: string } | null;
   isLoading: boolean;
   isAuthenticated: boolean;
@@ -51,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [effectivePermissionsByModule, setEffectivePermissionsByModule] = React.useState<Record<string, string[]>>({});
   const [hasFullAccess, setHasFullAccess] = React.useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = React.useState(false);
+  const [isAdmin, setIsAdmin] = React.useState(false);
   const [tenant, setTenant] = React.useState<{ id: string; name: string; slug: string } | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
 
@@ -70,6 +72,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (data.profile) {
           setProfile(data.profile);
         }
+        const profileName = data.profile?.name || '';
+        const userRoles = data.roles || [];
+        setIsAdmin(
+          data.user?.isSuperAdmin ||
+          profileName === 'Admin' || profileName === 'Manager' || profileName === 'CRM Admin' ||
+          userRoles.includes('Admin') || userRoles.includes('Manager') || userRoles.includes('CRM Admin')
+        );
       }
     } catch (error) {
       // Not authenticated - will redirect to login via API interceptor
@@ -134,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         effectivePermissionsByModule,
         hasFullAccess,
         isSuperAdmin,
+        isAdmin,
         tenant,
         isLoading,
         isAuthenticated: !!user,
@@ -157,6 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setEffectivePermissionsByModule({});
             setHasFullAccess(false);
             setIsSuperAdmin(false);
+            setIsAdmin(false);
             setTenant(null);
             window.location.href = "/login";
           }

@@ -54,64 +54,68 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(409).json({ success: false, error: 'Object with this name already exists' });
     }
 
-    const object = await prisma.objectDefinition.create({
-      data: {
-        tenantId: req.tenantId!,
-        name,
-        label,
-        pluralLabel,
-        description: description || null,
-        icon: icon || null,
-        objectType: 'custom',
-        createdBy: req.user!.id,
-        updatedBy: req.user!.id,
-      },
-    });
-
-    const systemFields = [
-      { name: 'id', label: 'ID', fieldType: 'autoNumber', isSystemField: true, isCustomField: false, displayOrder: 0, required: true, searchable: true, sortable: true, filterable: true, editable: false },
-      { name: 'record_number', label: 'Record Number', fieldType: 'autoNumber', isSystemField: true, isCustomField: false, displayOrder: 1, required: false, searchable: true, sortable: true, filterable: true, editable: false },
-      { name: 'owner', label: 'Owner', fieldType: 'lookup', lookupObject: 'User', isSystemField: true, isCustomField: false, displayOrder: 2, required: false, searchable: true, sortable: true, filterable: true, editable: true },
-      { name: 'created_by', label: 'Created By', fieldType: 'lookup', lookupObject: 'User', isSystemField: true, isCustomField: false, displayOrder: 3, required: false, searchable: false, sortable: true, filterable: false, editable: false },
-      { name: 'created_at', label: 'Created Date', fieldType: 'dateTime', isSystemField: true, isCustomField: false, displayOrder: 4, required: false, searchable: false, sortable: true, filterable: true, editable: false },
-      { name: 'updated_at', label: 'Updated Date', fieldType: 'dateTime', isSystemField: true, isCustomField: false, displayOrder: 5, required: false, searchable: false, sortable: true, filterable: false, editable: false },
-      { name: 'is_active', label: 'Is Active', fieldType: 'boolean', isSystemField: true, isCustomField: false, displayOrder: 6, required: false, searchable: false, sortable: true, filterable: true, editable: false },
-    ];
-
-    for (const sf of systemFields) {
-      await prisma.fieldDefinition.create({
+    const { object, defaultLayout } = await prisma.$transaction(async (transaction) => {
+      const createdObject = await transaction.objectDefinition.create({
         data: {
           tenantId: req.tenantId!,
-          objectId: object.id,
-          ...sf,
+          name,
+          label,
+          pluralLabel,
+          description: description || null,
+          icon: icon || null,
+          objectType: 'custom',
+          createdBy: req.user!.id,
+          updatedBy: req.user!.id,
+        },
+      });
+
+      const systemFields = [
+        { name: 'id', label: 'ID', fieldType: 'autoNumber', isSystemField: true, isCustomField: false, displayOrder: 0, required: true, searchable: true, sortable: true, filterable: true, editable: false },
+        { name: 'record_number', label: 'Record Number', fieldType: 'autoNumber', isSystemField: true, isCustomField: false, displayOrder: 1, required: false, searchable: true, sortable: true, filterable: true, editable: false },
+        { name: 'owner', label: 'Owner', fieldType: 'lookup', lookupObject: 'User', isSystemField: true, isCustomField: false, displayOrder: 2, required: false, searchable: true, sortable: true, filterable: true, editable: true },
+        { name: 'created_by', label: 'Created By', fieldType: 'lookup', lookupObject: 'User', isSystemField: true, isCustomField: false, displayOrder: 3, required: false, searchable: false, sortable: true, filterable: false, editable: false },
+        { name: 'created_at', label: 'Created Date', fieldType: 'dateTime', isSystemField: true, isCustomField: false, displayOrder: 4, required: false, searchable: false, sortable: true, filterable: true, editable: false },
+        { name: 'updated_at', label: 'Updated Date', fieldType: 'dateTime', isSystemField: true, isCustomField: false, displayOrder: 5, required: false, searchable: false, sortable: true, filterable: false, editable: false },
+        { name: 'is_active', label: 'Is Active', fieldType: 'boolean', isSystemField: true, isCustomField: false, displayOrder: 6, required: false, searchable: false, sortable: true, filterable: true, editable: false },
+      ];
+
+      for (const sf of systemFields) {
+        await transaction.fieldDefinition.create({
+          data: {
+            tenantId: req.tenantId!,
+            objectId: createdObject.id,
+            ...sf,
+            createdBy: req.user!.id,
+          },
+        });
+      }
+
+      const createdLayout = await transaction.pageLayout.create({
+        data: {
+          tenantId: req.tenantId!,
+          objectId: createdObject.id,
+          name: 'Default Layout',
+          isDefault: true,
+          sections: JSON.stringify([
+            { name: `${label} Information`, fields: ['record_number', 'owner'] },
+            { name: 'Details', fields: [] },
+          ]),
           createdBy: req.user!.id,
         },
       });
-    }
 
-    const defaultLayout = await prisma.pageLayout.create({
-      data: {
-        tenantId: req.tenantId!,
-        objectId: object.id,
-        name: 'Default Layout',
-        isDefault: true,
-        sections: JSON.stringify([
-          { name: `${label} Information`, fields: ['record_number', 'owner'] },
-          { name: 'Details', fields: [] },
-        ]),
-        createdBy: req.user!.id,
-      },
-    });
+      await transaction.auditLog.create({
+        data: {
+          tenantId: req.tenantId!,
+          userId: req.user!.id,
+          action: 'CREATE',
+          objectType: 'ObjectDefinition',
+          objectId: createdObject.id,
+          newValues: { name, label, pluralLabel },
+        },
+      });
 
-    await prisma.auditLog.create({
-      data: {
-        tenantId: req.tenantId!,
-        userId: req.user!.id,
-        action: 'CREATE',
-        objectType: 'ObjectDefinition',
-        objectId: object.id,
-        newValues: { name, label, pluralLabel },
-      },
+      return { object: createdObject, defaultLayout: createdLayout };
     });
 
     invalidateCache(req.tenantId!);

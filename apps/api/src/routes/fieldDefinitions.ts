@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '@dct-crm/db';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { getFieldDefinitions, invalidateCache, getObjectDefinition } from '../services/metadata';
+import { getAllFieldDefinitions, invalidateCache, getObjectDefinition } from '../services/metadata';
 
 const router = Router();
 router.use(authenticate);
@@ -51,23 +51,10 @@ router.get('/:objectName', async (req: AuthRequest, res: Response) => {
     }
 
     const { includeSystem, includeInactive } = req.query;
-    const where: any = { objectId: object.id };
-    if (includeSystem !== 'true') {
-      where.isSystemField = false;
-    }
-    if (includeInactive !== 'true') {
-      where.isActive = true;
-    }
-
-    const fields = await prisma.fieldDefinition.findMany({
-      where,
-      include: {
-        picklistValues: {
-          orderBy: { displayOrder: 'asc' },
-        },
-      },
-      orderBy: { displayOrder: 'asc' },
-    });
+    const allFields = await getAllFieldDefinitions(req.tenantId!, object.id);
+    let fields: any[] = allFields;
+    if (includeSystem !== 'true') fields = fields.filter((field: any) => !field.isSystemField);
+    if (includeInactive !== 'true') fields = fields.filter((field: any) => field.isActive);
 
     res.json({ success: true, data: fields });
   } catch (error) {
@@ -177,6 +164,31 @@ router.post('/:objectName', async (req: AuthRequest, res: Response) => {
             isDefault: pv.isDefault || false,
             displayOrder: pv.displayOrder ?? i,
           },
+        });
+      }
+    }
+
+    const defaultLayout = await prisma.pageLayout.findFirst({
+      where: { objectId: object.id, isDefault: true },
+    });
+    if (defaultLayout) {
+      const sections = JSON.parse(defaultLayout.sections as string) as any[];
+      const fieldExists = sections.some((section: any) =>
+        section.fields && Array.isArray(section.fields) && section.fields.includes(fieldName)
+      );
+      if (!fieldExists) {
+        if (sections.length === 0) {
+          sections.push({ name: 'More Information', fields: [fieldName] });
+        } else {
+          const lastSection = sections[sections.length - 1];
+          if (!lastSection.fields || !Array.isArray(lastSection.fields)) {
+            lastSection.fields = [];
+          }
+          lastSection.fields.push(fieldName);
+        }
+        await prisma.pageLayout.update({
+          where: { id: defaultLayout.id },
+          data: { sections: JSON.stringify(sections) },
         });
       }
     }

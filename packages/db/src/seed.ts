@@ -16,6 +16,7 @@ async function main() {
     data: {
       name: 'DCT Real Estate',
       slug: 'dct-re',
+      companyCode: 'DCT-RE',
       settings: {
         timezone: 'Asia/Kolkata',
         currency: 'INR',

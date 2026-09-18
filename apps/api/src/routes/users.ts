@@ -9,6 +9,49 @@ const router = Router();
 
 router.use(authenticate);
 
+async function checkCapacityLimits(
+  tenantId: string,
+  newProfileId?: string | null,
+  excludeUserId?: string,
+): Promise<{ allowed: boolean; error?: string }> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) return { allowed: true };
+
+  const activeUserCount = await prisma.user.count({
+    where: { tenantId, isActive: true, isSuperAdmin: false },
+  });
+
+  if (activeUserCount >= tenant.maxTotalUsers) {
+    return { allowed: false, error: `Total user limit reached (${tenant.maxTotalUsers}/${tenant.maxTotalUsers}). Contact Super Admin to increase capacity.` };
+  }
+
+  if (newProfileId) {
+    const profile = await prisma.profile.findUnique({ where: { id: newProfileId } });
+    if (profile?.isAdmin) {
+      const adminCount = await prisma.user.count({
+        where: {
+          tenantId,
+          isActive: true,
+          isSuperAdmin: false,
+          profile: { isAdmin: true },
+        },
+      });
+
+      const isCurrentAdmin = excludeUserId
+        ? await prisma.user.findFirst({
+            where: { id: excludeUserId, profileId: newProfileId },
+          })
+        : null;
+
+      if (!isCurrentAdmin && adminCount >= tenant.maxAdminUsers) {
+        return { allowed: false, error: `Admin user limit reached (${tenant.maxAdminUsers}/${tenant.maxAdminUsers}). Contact Super Admin to increase capacity.` };
+      }
+    }
+  }
+
+  return { allowed: true };
+}
+
 const inviteUserSchema = z.object({
   email: z.string().email(),
   firstName: z.string().min(1),
@@ -177,6 +220,21 @@ router.post('/', authorize('User', 'create'), async (req: AuthRequest, res: Resp
       return res.status(409).json({ success: false, error: 'User with this email already exists in this tenant' });
     }
 
+    const capacityCheck = await checkCapacityLimits(req.tenantId!, data.profileId);
+    if (!capacityCheck.allowed) {
+      await prisma.auditLog.create({
+        data: {
+          tenantId: req.tenantId!,
+          userId: req.user!.id,
+          action: 'CREATE',
+          objectType: 'User',
+          objectId: 'blocked',
+          newValues: { email: data.email, reason: 'capacity_limit', error: capacityCheck.error },
+        },
+      });
+      return res.status(403).json({ success: false, error: capacityCheck.error });
+    }
+
     const password = data.password || Math.random().toString(36).slice(-12);
     const passwordHash = await bcrypt.hash(password, 12);
 
@@ -243,6 +301,23 @@ router.put('/:id', authorize('User', 'edit'), async (req: AuthRequest, res: Resp
     }
 
     const data = updateUserSchema.parse(req.body);
+
+    if (data.profileId !== undefined && data.profileId !== existingUser.profileId) {
+      const capacityCheck = await checkCapacityLimits(req.tenantId!, data.profileId, req.params.id);
+      if (!capacityCheck.allowed) {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: req.tenantId!,
+            userId: req.user!.id,
+            action: 'UPDATE',
+            objectType: 'User',
+            objectId: req.params.id,
+            newValues: { profileId: data.profileId, reason: 'capacity_limit', error: capacityCheck.error },
+          },
+        });
+        return res.status(403).json({ success: false, error: capacityCheck.error });
+      }
+    }
 
     const user = await prisma.user.update({
       where: { id: req.params.id },
@@ -422,6 +497,23 @@ router.put('/:id/profile', authorize('User', 'edit'), async (req: AuthRequest, r
 
     if (!existingUser) {
       return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (profileId && profileId !== existingUser.profileId) {
+      const capacityCheck = await checkCapacityLimits(req.tenantId!, profileId, req.params.id);
+      if (!capacityCheck.allowed) {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: req.tenantId!,
+            userId: req.user!.id,
+            action: 'UPDATE',
+            objectType: 'User',
+            objectId: req.params.id,
+            newValues: { profileId, reason: 'capacity_limit', error: capacityCheck.error },
+          },
+        });
+        return res.status(403).json({ success: false, error: capacityCheck.error });
+      }
     }
 
     const user = await prisma.user.update({

@@ -1,4 +1,5 @@
 import { prisma } from '@dct-crm/db';
+import { REPORT_OBJECTS } from '../reports/report-metadata';
 
 const metadataCache = new Map<string, { data: any; expires: number }>();
 const CACHE_TTL = 5 * 60 * 1000;
@@ -18,6 +19,31 @@ function getCached(tenantId: string, key: string) {
 function setCache(tenantId: string, key: string, data: any) {
   const cacheKey = getCacheKey(tenantId, key);
   metadataCache.set(cacheKey, { data, expires: Date.now() + CACHE_TTL });
+}
+
+function getVirtualStandardFields(object: { id: string; name: string }) {
+  const config = REPORT_OBJECTS[object.name];
+  if (!config) return [];
+  return Object.entries(config.fields).map(([name, field], displayOrder) => ({
+    id: `standard-${object.id}-${name}`,
+    objectId: object.id,
+    name,
+    label: field.label,
+    fieldType: field.type === 'number' ? 'number' : field.type === 'date' ? 'dateTime' : field.type === 'enum' ? 'picklist' : 'text',
+    required: false,
+    unique: false,
+    searchable: true,
+    sortable: true,
+    filterable: true,
+    visible: true,
+    editable: name !== 'id',
+    isActive: true,
+    isSystemField: name === 'id',
+    isCustomField: false,
+    isStandardField: true,
+    displayOrder,
+    picklistValues: [],
+  }));
 }
 
 export function invalidateCache(tenantId: string, objectName?: string) {
@@ -46,8 +72,11 @@ export async function getObjectDefinitions(tenantId: string, includeInactive = f
     orderBy: { label: 'asc' },
   });
 
-  setCache(tenantId, cacheKey, objects);
-  return objects;
+  const normalized = objects.map((object) => object._count.fields === 0
+    ? { ...object, _count: { ...object._count, fields: getVirtualStandardFields(object).length } }
+    : object);
+  setCache(tenantId, cacheKey, normalized);
+  return normalized;
 }
 
 export async function getObjectDefinition(tenantId: string, objectName: string) {
@@ -72,8 +101,12 @@ export async function getObjectDefinition(tenantId: string, objectName: string) 
     },
   });
 
-  if (object) setCache(tenantId, cacheKey, object);
-  return object;
+  if (!object) return object;
+  const normalized = object.fields.length === 0
+    ? { ...object, fields: getVirtualStandardFields(object) }
+    : object;
+  setCache(tenantId, cacheKey, normalized);
+  return normalized;
 }
 
 export async function getFieldDefinitions(tenantId: string, objectId: string) {
@@ -92,6 +125,12 @@ export async function getFieldDefinitions(tenantId: string, objectId: string) {
     orderBy: { displayOrder: 'asc' },
   });
 
+  if (fields.length === 0) {
+    const object = await prisma.objectDefinition.findFirst({ where: { id: objectId, tenantId }, select: { id: true, name: true } });
+    const virtualFields = object ? getVirtualStandardFields(object) : [];
+    setCache(tenantId, cacheKey, virtualFields);
+    return virtualFields;
+  }
   setCache(tenantId, cacheKey, fields);
   return fields;
 }
@@ -107,7 +146,9 @@ export async function getAllFieldDefinitions(tenantId: string, objectId: string)
     },
     orderBy: { displayOrder: 'asc' },
   });
-  return fields;
+  if (fields.length > 0) return fields;
+  const object = await prisma.objectDefinition.findFirst({ where: { id: objectId, tenantId }, select: { id: true, name: true } });
+  return object ? getVirtualStandardFields(object) : fields;
 }
 
 export async function getPageLayout(tenantId: string, objectId: string, layoutName?: string) {

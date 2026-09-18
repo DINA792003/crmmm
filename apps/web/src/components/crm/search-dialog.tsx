@@ -12,14 +12,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Search, ArrowRight, User, Building2, TrendingUp, FileText } from "lucide-react";
+import { Search, ArrowRight, User, Building2, TrendingUp, FileText, Loader2 } from "lucide-react";
+import { searchApi } from "@/lib/api";
 
 interface SearchResult {
   id: string;
   title: string;
   subtitle: string;
-  type: "lead" | "contact" | "account" | "opportunity";
+  type: string;
   href: string;
 }
 
@@ -33,13 +33,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
-
-  const searchItems: SearchResult[] = [
-    { id: "1", title: "John Smith", subtitle: "Lead - Premium Apartments", type: "lead", href: "/leads/1" },
-    { id: "2", title: "Sarah Johnson", subtitle: "Contact - ABC Corp", type: "contact", href: "/contacts/2" },
-    { id: "3", title: "ABC Corporation", subtitle: "Account - Enterprise", type: "account", href: "/accounts/3" },
-    { id: "4", title: "Premium Tower Project", subtitle: "Opportunity - ₹2.5Cr", type: "opportunity", href: "/opportunities/4" },
-  ];
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   const handleSearch = async (searchQuery: string) => {
     setQuery(searchQuery);
@@ -48,17 +42,81 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
       return;
     }
 
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
     setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      const filtered = searchItems.filter(
-        (item) =>
-          item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.subtitle.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setResults(filtered);
+    try {
+      const response = await searchApi.quick(searchQuery);
+      const data = response.data?.data;
+      const flattened: SearchResult[] = [];
+
+      if (data?.leads) {
+        data.leads.forEach((item: any) => {
+          flattened.push({
+            id: item.id,
+            title: `${item.firstName || ""} ${item.lastName || ""}`.trim() || "Untitled Lead",
+            subtitle: `Lead${item.status ? ` - ${item.status}` : ""}`,
+            type: "lead",
+            href: `/leads/${item.id}`,
+          });
+        });
+      }
+      if (data?.contacts) {
+        data.contacts.forEach((item: any) => {
+          flattened.push({
+            id: item.id,
+            title: `${item.firstName || ""} ${item.lastName || ""}`.trim() || "Untitled Contact",
+            subtitle: `Contact${item.phone ? ` - ${item.phone}` : ""}`,
+            type: "contact",
+            href: `/contacts/${item.id}`,
+          });
+        });
+      }
+      if (data?.customers) {
+        data.customers.forEach((item: any) => {
+          flattened.push({
+            id: item.id,
+            title: `${item.firstName || ""} ${item.lastName || ""}`.trim() || "Untitled Customer",
+            subtitle: `Customer${item.phone ? ` - ${item.phone}` : ""}`,
+            type: "customer",
+            href: `/customers/${item.id}`,
+          });
+        });
+      }
+      if (data?.opportunities) {
+        data.opportunities.forEach((item: any) => {
+          flattened.push({
+            id: item.id,
+            title: item.name || "Untitled Opportunity",
+            subtitle: `Opportunity - ${item.stage || "Unknown"}${item.amount ? ` - ₹${item.amount.toLocaleString()}` : ""}`,
+            type: "opportunity",
+            href: `/opportunities/${item.id}`,
+          });
+        });
+      }
+      if (data?.tasks) {
+        data.tasks.forEach((item: any) => {
+          flattened.push({
+            id: item.id,
+            title: item.title || "Untitled Task",
+            subtitle: `Task - ${item.status || "Unknown"}${item.priority ? ` (${item.priority})` : ""}`,
+            type: "task",
+            href: `/tasks/${item.id}`,
+          });
+        });
+      }
+
+      setResults(flattened);
+    } catch (error: any) {
+      if (error?.name !== "AbortError") {
+        console.error("Search failed:", error);
+        setResults([]);
+      }
+    } finally {
       setIsLoading(false);
-    }, 300);
+    }
   };
 
   const handleSelect = (href: string) => {
@@ -76,8 +134,12 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
         return <User className="h-4 w-4" />;
       case "account":
         return <Building2 className="h-4 w-4" />;
+      case "customer":
+        return <Building2 className="h-4 w-4" />;
       case "opportunity":
         return <TrendingUp className="h-4 w-4" />;
+      case "task":
+        return <FileText className="h-4 w-4" />;
       default:
         return <FileText className="h-4 w-4" />;
     }
@@ -91,8 +153,12 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
         return "bg-green-100 text-green-800";
       case "account":
         return "bg-purple-100 text-purple-800";
-      case "opportunity":
+      case "customer":
         return "bg-orange-100 text-orange-800";
+      case "opportunity":
+        return "bg-yellow-100 text-yellow-800";
+      case "task":
+        return "bg-red-100 text-red-800";
       default:
         return "bg-gray-100 text-gray-800";
     }
@@ -107,19 +173,27 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
         <div className="relative p-4 pt-0">
           <Search className="absolute left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search leads, contacts, accounts, opportunities..."
+            placeholder="Search leads, contacts, customers, opportunities, tasks..."
             value={query}
             onChange={(e) => handleSearch(e.target.value)}
             className="pl-10 h-12"
             autoFocus
           />
         </div>
-        {results.length > 0 && (
+        {isLoading && (
+          <div className="px-4 pb-4">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Searching...</span>
+            </div>
+          </div>
+        )}
+        {!isLoading && results.length > 0 && (
           <div className="max-h-[400px] overflow-y-auto px-4 pb-4">
             <div className="space-y-1">
               {results.map((result) => (
                 <button
-                  key={result.id}
+                  key={`${result.type}-${result.id}`}
                   onClick={() => handleSelect(result.href)}
                   className="flex w-full items-center justify-between rounded-lg p-3 text-left hover:bg-accent transition-colors"
                 >
@@ -138,7 +212,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
             </div>
           </div>
         )}
-        {query.length >= 2 && results.length === 0 && !isLoading && (
+        {!isLoading && query.length >= 2 && results.length === 0 && (
           <div className="p-8 text-center">
             <p className="text-muted-foreground">No results found for &quot;{query}&quot;</p>
           </div>

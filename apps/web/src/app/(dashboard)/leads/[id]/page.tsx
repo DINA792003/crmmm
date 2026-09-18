@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
-import { leadApi, siteVisitApi, opportunityApi, activityApi, taskApi, followUpApi } from "@/lib/api";
+import { leadApi, siteVisitApi, opportunityApi, activityApi, taskApi, followUpApi, objectManagerApi } from "@/lib/api";
+import LayoutDrivenForm from "@/components/admin/layout-driven-form";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -151,14 +152,22 @@ export default function LeadDetailPage() {
   const [recoveryDialogOpen, setRecoveryDialogOpen] = React.useState(false);
   const [recoveryReason, setRecoveryReason] = React.useState("");
   const [recoveryNote, setRecoveryNote] = React.useState("");
+  const [layout, setLayout] = React.useState<any>(null);
+  const [fields, setFields] = React.useState<any[]>([]);
 
   const fetchLead = React.useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await leadApi.get(leadId);
-      if (res.data.success && res.data.data) {
-        setLead(res.data.data);
+      const [leadRes, layoutRes, fieldsRes] = await Promise.all([
+        leadApi.get(leadId),
+        objectManagerApi.getDefaultLayout("Lead"),
+        objectManagerApi.listFields("Lead", { includeSystem: true }),
+      ]);
+      if (leadRes.data.success && leadRes.data.data) {
+        setLead(leadRes.data.data);
       }
+      setLayout(layoutRes.data.data);
+      setFields(fieldsRes.data.data || []);
     } catch {
       toast({ title: "Error", description: "Failed to load lead", variant: "destructive" as any });
     } finally {
@@ -451,146 +460,14 @@ export default function LeadDetailPage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-3">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Contact Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{lead.salutation ? `${lead.salutation} ` : ""}{lead.firstName || ""} {lead.lastName}</span>
-                </div>
-                {lead.title && (
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{lead.title}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-3">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{lead.email || "—"}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{lead.phone || "—"}</span>
-                </div>
-                {lead.mobile && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{lead.mobile}</span>
-                  </div>
-                )}
-                {lead.website && (
-                  <div className="flex items-center gap-3">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <a href={lead.website} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">{lead.website}</a>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Company Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Company</span>
-                  <span className="text-sm font-medium">{lead.company}</span>
-                </div>
-                {lead.industry && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Industry</span>
-                    <Badge variant="secondary">{lead.industry}</Badge>
-                  </div>
-                )}
-                {lead.annualRevenue && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Annual Revenue</span>
-                    <span className="text-sm font-medium">₹{lead.annualRevenue.toLocaleString()}</span>
-                  </div>
-                )}
-                {lead.numberOfEmployees && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Employees</span>
-                    <span className="text-sm font-medium">{lead.numberOfEmployees.toLocaleString()}</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Lead Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Status</span>
-                  <Badge variant={STATUS_VARIANT[STATUS_LABELS[status] ? status : "default"]}>
-                    {STATUS_LABELS[status] || status}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Source</span>
-                  <Badge variant="secondary">{lead.source}</Badge>
-                </div>
-                {lead.rating && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Rating</span>
-                    <Badge variant={lead.rating === "HOT" ? "destructive" : lead.rating === "WARM" ? "warning" : "outline"}>
-                      {lead.rating}
-                    </Badge>
-                  </div>
-                )}
-                {lead.budget && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Budget</span>
-                    <span className="text-sm font-medium">₹{lead.budget.toLocaleString()}</span>
-                  </div>
-                )}
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Owner</span>
-                  <span className="text-sm font-medium">
-                    {lead.owner ? `${lead.owner.firstName} ${lead.owner.lastName}` : "Unassigned"}
-                  </span>
-                </div>
-                {lead.project && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Project</span>
-                    <span className="text-sm font-medium">{lead.project.name}</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {(lead.street || lead.city || lead.stateProvince || lead.country || lead.postalCode) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Address</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3">
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">
-                    {[lead.street, lead.city, lead.stateProvince, lead.country, lead.postalCode].filter(Boolean).join(", ")}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {lead.description && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Description</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{lead.description}</p>
-              </CardContent>
-            </Card>
+          {lead && layout && (
+            <LayoutDrivenForm
+              objectName="Lead"
+              mode="detail"
+              data={lead}
+              layout={layout}
+              fields={fields}
+            />
           )}
 
           <Card>
@@ -602,49 +479,27 @@ export default function LeadDetailPage() {
                   <Calendar className="h-4 w-4 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium">Created</p>
-                    <p className="text-xs text-muted-foreground">{new Date(lead.createdAt).toLocaleDateString()}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(lead!.createdAt).toLocaleDateString()}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium">Last Updated</p>
-                    <p className="text-xs text-muted-foreground">{new Date(lead.updatedAt).toLocaleDateString()}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(lead!.updatedAt).toLocaleDateString()}</p>
                   </div>
                 </div>
-                {lead.creator && (
+                {lead!.creator && (
                   <div className="flex items-center gap-3">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Created By</p>
-                      <p className="text-xs text-muted-foreground">{lead.creator.firstName} {lead.creator.lastName}</p>
+                      <p className="text-xs text-muted-foreground">{lead!.creator.firstName} {lead!.creator.lastName}</p>
                     </div>
                   </div>
                 )}
               </CardContent>
             </Card>
-
-          {lead.requirements && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Requirements</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{lead.requirements}</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {lead.notes && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Notes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{lead.notes}</p>
-              </CardContent>
-            </Card>
-          )}
         </TabsContent>
 
         {/* Activities Tab */}

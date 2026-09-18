@@ -11,6 +11,7 @@ router.use(authenticate);
 const createTenantSchema = z.object({
   name: z.string().min(1),
   slug: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
+  companyCode: z.string().min(1).regex(/^[A-Za-z0-9_-]+$/, 'Company code must be alphanumeric'),
   domain: z.string().optional(),
 });
 
@@ -103,6 +104,7 @@ router.post('/tenants', requireSuperAdmin, async (req: AuthRequest, res: Respons
       data: {
         name: data.name,
         slug: data.slug,
+        companyCode: data.companyCode,
         domain: data.domain,
       },
     });

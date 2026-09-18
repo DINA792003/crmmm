@@ -58,11 +58,12 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   boxes: Boxes,
 };
 
-function getNavigationByProfile(profileName: string | undefined, roles: string[], hasEffectivePermission: (perm: string) => boolean): NavItem[] {
-  const isAdminOrManager = profileName === "Admin" || profileName === "Manager" || profileName === "CRM Admin" || roles.includes("Admin") || roles.includes("Manager") || roles.includes("CRM Admin");
+function getNavigationByProfile(profileName: string | undefined, roles: string[], hasEffectivePermission: (perm: string) => boolean, isSuperAdmin: boolean, isAdmin: boolean): NavItem[] {
+  const showAdminSection = isSuperAdmin || isAdmin;
 
   const allItems: NavItem[] = [
     { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+    { title: "Companies", href: "/admin/companies", icon: Building2 },
     {
       title: "CRM",
       href: "#",
@@ -91,12 +92,13 @@ function getNavigationByProfile(profileName: string | undefined, roles: string[]
     { title: "Reports", href: "/reports", icon: BarChart3 },
   ];
 
-  if (isAdminOrManager) {
+  if (showAdminSection) {
     allItems.push({
       title: "Admin",
       href: "#",
       icon: Settings,
       items: [
+        { title: "Company Management", href: "/admin/companies", icon: Building2 },
         { title: "Object Manager", href: "/admin/object-manager", icon: Database },
         { title: "Users", href: "/admin/users", icon: Users },
         { title: "Profiles", href: "/admin/profiles", icon: UserCheck },
@@ -141,7 +143,7 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { profile, roles, hasEffectivePermission } = useAuth();
+  const { profile, roles, hasEffectivePermission, isSuperAdmin, isAdmin } = useAuth();
   const [expandedItems, setExpandedItems] = React.useState<string[]>([]);
   const [customObjects, setCustomObjects] = React.useState<NavItem[]>([]);
 
@@ -176,7 +178,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     }
   };
 
-  const staticNavigation = getNavigationByProfile(profile?.name, roles, hasEffectivePermission);
+  const staticNavigation = getNavigationByProfile(profile?.name, roles, hasEffectivePermission, isSuperAdmin, isAdmin);
   const navigation = [...staticNavigation, ...customObjects];
 
   const toggleExpanded = (title: string) => {

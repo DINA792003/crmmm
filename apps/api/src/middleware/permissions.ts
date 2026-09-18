@@ -9,6 +9,10 @@ export const requirePermission = (permissionName: string) => {
         return res.status(401).json({ success: false, error: 'Authentication required' });
       }
 
+      if (req.user.isSuperAdmin) {
+        return next();
+      }
+
       const result = await EffectivePermissionService.requirePermission(req.user.id, permissionName);
 
       if (!result.allowed) {
@@ -28,6 +32,10 @@ export const requireAnyPermission = (permissionNames: string[]) => {
     try {
       if (!req.user) {
         return res.status(401).json({ success: false, error: 'Authentication required' });
+      }
+
+      if (req.user.isSuperAdmin) {
+        return next();
       }
 
       const has = await EffectivePermissionService.hasAnyPermission(req.user.id, permissionNames);

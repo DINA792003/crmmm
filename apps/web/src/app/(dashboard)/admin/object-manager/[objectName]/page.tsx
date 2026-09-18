@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import LayoutManager from "@/components/admin/layout-manager";
 import {
   Select,
   SelectContent,
@@ -728,16 +729,7 @@ export default function ObjectSettingsPage() {
         </TabsContent>
 
         <TabsContent value="layouts" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Page Layouts</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Define field order, sections, and visibility for create/edit/detail pages.
-              </p>
-            </CardContent>
-          </Card>
+          <LayoutManager objectName={objectName} fields={fields} />
         </TabsContent>
 
         <TabsContent value="listViews" className="space-y-4">

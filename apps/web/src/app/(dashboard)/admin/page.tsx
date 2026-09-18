@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/crm/data-table";
 import { ColumnDef } from "@tanstack/react-table";
-import { Plus, MoreHorizontal, Eye, Edit, Trash2, Shield, Users, Settings, UserCog, Briefcase } from "lucide-react";
+import { Plus, MoreHorizontal, Eye, Edit, Trash2, Shield, Users, Settings, UserCog, Briefcase, Building2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -272,6 +272,21 @@ export default function AdminPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Link href="/admin/companies">
+          <Card className="hover:border-primary hover:shadow-md transition-all cursor-pointer">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Building2 className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Company Management</p>
+                  <p className="text-xs text-muted-foreground">Manage platform companies and tenants</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
         <Link href="/admin/users">
           <Card className="hover:border-primary hover:shadow-md transition-all cursor-pointer">
             <CardContent className="p-4">
@@ -332,21 +347,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/admin/profiles">
-        <Card className="hover:shadow-md transition-shadow cursor-pointer">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-100 rounded-lg">
-                <Shield className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">Roles & Permissions</p>
-                <p className="text-xs text-muted-foreground">Manage roles and access control</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        </Link>
+
       </div>
 
       <Tabs value={currentTab} onValueChange={setCurrentTab}>

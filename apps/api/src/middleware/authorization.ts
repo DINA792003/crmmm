@@ -18,6 +18,10 @@ export const authorize = (objectName: string, requiredPermission: keyof Permissi
         return res.status(401).json({ success: false, error: 'Authentication required' });
       }
 
+      if (req.user.isSuperAdmin) {
+        return next();
+      }
+
       const userRoles = await prisma.userRole.findMany({
         where: { userId: req.user.id },
         include: {
@@ -68,8 +72,11 @@ export const checkRecordAccess = async (
   tenantId: string,
   objectName: string,
   recordId: string,
-  action: 'read' | 'edit' | 'delete'
+  action: 'read' | 'edit' | 'delete',
+  isSuperAdmin?: boolean
 ): Promise<boolean> => {
+  if (isSuperAdmin) return true;
+
   const userRoles = await prisma.userRole.findMany({
     where: { userId },
     include: {

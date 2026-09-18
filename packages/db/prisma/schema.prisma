@@ -18,10 +18,33 @@ model Tenant {
   id            String   @id @default(cuid())
   name          String
   slug          String   @unique
+  companyCode   String   @unique
   domain        String?
   logo          String?
+  email         String?
+  phone         String?
+  website       String?
+  address       String?
+  city          String?
+  state         String?
+  country       String?
+  postalCode    String?
+  timezone      String?
+  currency      String?
+  description   String?
   settings      Json?
   isActive      Boolean  @default(true)
+
+  maxTotalUsers    Int      @default(10)
+  maxAdminUsers    Int      @default(2)
+  packageName      String?
+  packageStatus    String   @default("active")
+  packageStartDate DateTime?
+  packageExpiryDate DateTime?
+  packageNotes     String?
+
+  createdBy     String?
+  updatedBy     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -33,6 +56,7 @@ model Tenant {
   queues        Queue[]
   auditLogs     AuditLog[]
   reports       Report[]
+  reportFolders ReportFolder[]
   dashboards    Dashboard[]
   workflows     Workflow[]
   automations   Automation[]
@@ -57,6 +81,7 @@ model Tenant {
   customRecords CustomRecord[]
 
   @@index([slug])
+  @@index([companyCode])
 }
 
 model User {
@@ -140,6 +165,7 @@ model Profile {
   name          String
   description   String?
   isDefault     Boolean  @default(false)
+  isAdmin       Boolean  @default(false)
   leadStatusAccess Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -1004,10 +1030,29 @@ model Automation {
 // REPORTS & DASHBOARDS
 // ============================================
 
+model ReportFolder {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  name          String
+  description   String?
+  isShared      Boolean   @default(false)
+  createdBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  reports       Report[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
 model Report {
   id            String    @id @default(cuid())
   tenantId      String
   tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  folderId      String?
+  folder        ReportFolder? @relation(fields: [folderId], references: [id])
   name          String
   description   String?
   type          String
@@ -1023,6 +1068,7 @@ model Report {
 
   @@unique([tenantId, name])
   @@index([tenantId])
+  @@index([folderId])
 }
 
 model Dashboard {
