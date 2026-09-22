@@ -90,6 +90,7 @@ function getNavigationByProfile(profileName: string | undefined, roles: string[]
     { title: "Projects", href: "/projects", icon: FolderKanban },
     { title: "Tasks", href: "/tasks", icon: CheckSquare },
     { title: "Reports", href: "/reports", icon: BarChart3 },
+    { title: "Dashboards", href: "/dashboard", icon: LayoutDashboard },
   ];
 
   if (showAdminSection) {
@@ -132,6 +133,7 @@ function getNavigationByProfile(profileName: string | undefined, roles: string[]
   if (hasEffectivePermission("PROJECT_READ")) nav.push({ title: "Projects", href: "/projects", icon: FolderKanban });
   if (hasEffectivePermission("TASK_READ")) nav.push({ title: "Tasks", href: "/tasks", icon: CheckSquare });
   if (hasEffectivePermission("REPORT_VIEW")) nav.push({ title: "Reports", href: "/reports", icon: BarChart3 });
+  if (hasEffectivePermission("DASHBOARD_READ")) nav.push({ title: "Dashboards", href: "/dashboard", icon: LayoutDashboard });
 
   return nav;
 }

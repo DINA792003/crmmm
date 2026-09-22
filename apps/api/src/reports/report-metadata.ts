@@ -1,9 +1,18 @@
+import { prisma } from '@dct-crm/db';
+
 export type ReportFieldType = 'string' | 'number' | 'date' | 'enum';
 
 export interface ReportField {
   label: string;
   path: string;
   type: ReportFieldType;
+  filterable?: boolean;
+  sortable?: boolean;
+  groupable?: boolean;
+  aggregatable?: boolean;
+  dateFilterable?: boolean;
+  visibleTo?: string[];
+  displayPath?: string;
 }
 
 export interface ReportObject {
@@ -11,6 +20,25 @@ export interface ReportObject {
   category?: string;
   model: string;
   fields: Record<string, ReportField>;
+}
+
+export interface MetadataFieldDefinition {
+  name: string;
+  label: string;
+  type: string;
+  filterable: boolean;
+  sortable: boolean;
+  groupable: boolean;
+  aggregatable: boolean;
+  dateFilterable: boolean;
+  visibleTo: string[];
+}
+
+export interface MetadataObjectDefinition {
+  object: string;
+  label: string;
+  category: string;
+  fields: MetadataFieldDefinition[];
 }
 
 export const REPORT_OBJECTS: Record<string, ReportObject> = {
@@ -173,3 +201,74 @@ export const REPORT_OBJECTS: Record<string, ReportObject> = {
     },
   },
 };
+
+function normalizeMetadataField(fieldName: string, field: ReportField): MetadataFieldDefinition {
+  return {
+    name: fieldName,
+    label: field.label,
+    type: field.type,
+    filterable: field.filterable ?? true,
+    sortable: field.sortable ?? true,
+    groupable: field.groupable ?? true,
+    aggregatable: field.aggregatable ?? (field.type === 'number'),
+    dateFilterable: field.dateFilterable ?? (field.type === 'date'),
+    visibleTo: field.visibleTo ?? ['all'],
+  };
+}
+
+export async function getReportMetadataRegistry(tenantId?: string, objectName?: string) {
+  const staticObjects = Object.entries(REPORT_OBJECTS).map(([name, object]) => ({
+    object: name,
+    label: object.label,
+    category: object.category || object.label,
+    fields: Object.entries(object.fields).map(([fieldName, field]) => normalizeMetadataField(fieldName, field)),
+  }));
+
+  let dynamicObjects: MetadataObjectDefinition[] = [];
+
+  if (tenantId) {
+    const definitions = await prisma.objectDefinition.findMany({
+      where: { tenantId, isActive: true },
+      include: {
+        fields: {
+          where: { isActive: true, visible: true },
+          orderBy: { displayOrder: 'asc' },
+        },
+      },
+      orderBy: { label: 'asc' },
+    });
+
+    const staticNames = new Set(staticObjects.map((object) => object.object.toLowerCase()));
+    dynamicObjects = definitions
+      .filter((definition) => !staticNames.has(definition.name.toLowerCase()))
+      .map((definition) => ({
+        object: definition.name,
+        label: definition.pluralLabel || definition.label,
+        category: definition.pluralLabel || definition.label,
+        fields: definition.fields.map((field) => ({
+          name: field.name,
+          label: field.label,
+          type: field.fieldType,
+          filterable: true,
+          sortable: true,
+          groupable: true,
+          aggregatable: ['number', 'currency', 'decimal'].includes(field.fieldType),
+          dateFilterable: ['date', 'dateTime'].includes(field.fieldType),
+          visibleTo: ['all'],
+        })),
+      }));
+  }
+
+  const registry = [...staticObjects, ...dynamicObjects];
+
+  if (!objectName) {
+    return { objects: registry };
+  }
+
+  const match = registry.find((item) => item.object.toLowerCase() === objectName.toLowerCase());
+  if (!match) {
+    throw new Error(`Unknown report object: ${objectName}`);
+  }
+
+  return { object: match.object, label: match.label, category: match.category, fields: match.fields };
+}

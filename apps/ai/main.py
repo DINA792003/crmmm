@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+/Users/dinakarans/Documents/Screenshot 2026-09-21 at 11.12.12 AM.pngfrom fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -106,7 +106,8 @@ def parse_date_range(message: str):
     return str(today.replace(day=1)), str(today)
 
 
-def detect_intent(message: str):
+
+]startdef detect_intent(message: str):
     msg = message.lower().strip()
 
     greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", "how are you", "what's up"]

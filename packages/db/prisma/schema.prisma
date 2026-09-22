@@ -1030,6 +1030,11 @@ model Automation {
 // REPORTS & DASHBOARDS
 // ============================================
 
+enum ReportVisibility {
+  PRIVATE
+  PUBLIC
+}
+
 model ReportFolder {
   id            String    @id @default(cuid())
   tenantId      String
@@ -1037,14 +1042,80 @@ model ReportFolder {
   name          String
   description   String?
   isShared      Boolean   @default(false)
+  visibility    ReportVisibility @default(PRIVATE)
   createdBy     String
+  modifiedBy    String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
   reports       Report[]
+  shares        ReportFolderShare[]
+  favorites     ReportFolderFavorite[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
+  @@index([tenantId, deletedAt])
+}
+
+model ReportFolderShare {
+  id          String   @id
+  tenantId    String
+  folderId    String
+  userId      String?
+  roleId      String?
+  accessLevel String   @default("VIEWER")
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  folder      ReportFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@unique([folderId, userId, roleId])
+  @@index([tenantId, userId])
+  @@index([tenantId, roleId])
+}
+
+model ReportShare {
+  id          String   @id
+  tenantId    String
+  reportId    String
+  userId      String?
+  roleId      String?
+  accessLevel String   @default("VIEWER")
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  report      Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, userId, roleId])
+  @@index([tenantId, userId])
+  @@index([tenantId, roleId])
+}
+
+model ReportFolderFavorite {
+  id        String   @id
+  tenantId  String
+  folderId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  folder    ReportFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@unique([folderId, userId])
+  @@index([tenantId, userId])
+}
+
+model ReportFavorite {
+  id        String   @id
+  tenantId  String
+  reportId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, userId])
+  @@index([tenantId, userId])
 }
 
 model Report {
@@ -1058,6 +1129,7 @@ model Report {
   type          String
   objectName    String
   columns       Json
+  config        Json?
   filters       Json?
   groupBy       String?
   sortBy        String?
@@ -1065,6 +1137,10 @@ model Report {
   createdBy     String
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  favorites     ReportFavorite[]
+  shares        ReportShare[]
 
   @@unique([tenantId, name])
   @@index([tenantId])

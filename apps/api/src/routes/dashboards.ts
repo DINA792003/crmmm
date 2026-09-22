@@ -3,6 +3,7 @@ import { prisma } from '@dct-crm/db';
 import { z } from 'zod';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { authorize } from '../middleware/authorization';
+import { canAccessDashboardForUser, canAccessReportForUser, runReport } from '../reports/report-engine';
 
 const router = Router();
 
@@ -30,6 +31,19 @@ const dashboardSchema = z.object({
 });
 
 const updateDashboardSchema = dashboardSchema.partial();
+
+function ensureDashboardAccess(dashboard: { createdBy?: string | null; isDefault?: boolean | null; tenantId?: string | null } | null, req: AuthRequest) {
+  if (!dashboard) {
+    return false;
+  }
+
+  const permissions = req.effectivePermissions?.map((perm) => perm.name) || [];
+  return canAccessDashboardForUser(dashboard, {
+    id: req.user!.id,
+    tenantId: req.user!.tenantId,
+    isSuperAdmin: req.user!.isSuperAdmin,
+  }, permissions);
+}
 
 router.get('/', authorize('Dashboard', 'read'), async (req: AuthRequest, res: Response) => {
   try {
@@ -81,6 +95,10 @@ router.get('/default', authorize('Dashboard', 'read'), async (req: AuthRequest, 
       return res.status(404).json({ success: false, error: 'No default dashboard found' });
     }
 
+    if (!ensureDashboardAccess(dashboard, req)) {
+      return res.status(403).json({ success: false, error: 'Access denied: dashboard is not visible to you' });
+    }
+
     res.json({ success: true, data: dashboard });
   } catch (error) {
     console.error('Get default dashboard error:', error);
@@ -96,6 +114,10 @@ router.get('/:id', authorize('Dashboard', 'read'), async (req: AuthRequest, res:
 
     if (!dashboard) {
       return res.status(404).json({ success: false, error: 'Dashboard not found' });
+    }
+
+    if (!ensureDashboardAccess(dashboard, req)) {
+      return res.status(403).json({ success: false, error: 'Access denied: dashboard is not visible to you' });
     }
 
     res.json({ success: true, data: dashboard });
@@ -158,6 +180,10 @@ router.put('/:id', authorize('Dashboard', 'edit'), async (req: AuthRequest, res:
       return res.status(404).json({ success: false, error: 'Dashboard not found' });
     }
 
+    if (existingDashboard.createdBy !== req.user!.id && !req.user?.isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied: you can only update your own dashboard' });
+    }
+
     const data = updateDashboardSchema.parse(req.body);
 
     if (data.isDefault) {
@@ -204,6 +230,10 @@ router.delete('/:id', authorize('Dashboard', 'delete'), async (req: AuthRequest,
       return res.status(404).json({ success: false, error: 'Dashboard not found' });
     }
 
+    if (dashboard.createdBy !== req.user!.id && !req.user?.isSuperAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied: you can only delete your own dashboard' });
+    }
+
     if (dashboard.isDefault) {
       return res.status(400).json({ success: false, error: 'Cannot delete default dashboard' });
     }
@@ -236,6 +266,10 @@ router.post('/:id/widgets/:widgetId/data', authorize('Dashboard', 'read'), async
 
     if (!dashboard) {
       return res.status(404).json({ success: false, error: 'Dashboard not found' });
+    }
+
+    if (!ensureDashboardAccess(dashboard, req)) {
+      return res.status(403).json({ success: false, error: 'Access denied: dashboard is not visible to you' });
     }
 
     const layout = dashboard.layout as any[];
@@ -306,6 +340,19 @@ router.post('/:id/widgets/:widgetId/data', authorize('Dashboard', 'read'), async
         }));
       },
     };
+
+    const reportId = (widget as any).reportId || widget.config?.reportId;
+    if (reportId) {
+      const report = await prisma.report.findFirst({ where: { id: String(reportId), tenantId: req.tenantId!, deletedAt: null } });
+      const permissions = req.effectivePermissions?.map((permission) => permission.name) || [];
+      const roleIds = (await prisma.userRole.findMany({ where: { userId: req.user!.id }, select: { roleId: true } })).map((role) => role.roleId);
+      const explicitShare = report ? await prisma.reportShare.findFirst({ where: { reportId: report.id, tenantId: req.tenantId!, OR: [{ userId: req.user!.id }, ...(roleIds.length ? [{ roleId: { in: roleIds } }] : [])] } }) : null;
+      if (!report || (!canAccessReportForUser(report, { id: req.user!.id, tenantId: req.tenantId!, isSuperAdmin: req.user!.isSuperAdmin }, permissions) && !explicitShare)) {
+        return res.status(403).json({ success: false, error: 'Access denied: report is not available to this dashboard user' });
+      }
+      const result = await runReport({ tenantId: req.tenantId!, objectName: report.objectName, columns: Array.isArray(report.columns) ? report.columns as string[] : [], filters: Array.isArray(report.filters) ? report.filters as any[] : [], groupBy: report.groupBy || undefined, sortBy: report.sortBy || undefined, limit: Number(widget.config?.rowLimit) || 1000 });
+      return res.json({ success: true, data: { widget, data: result } });
+    }
 
     const metric = widget.metric || widget.config?.metric;
     let data: any = null;

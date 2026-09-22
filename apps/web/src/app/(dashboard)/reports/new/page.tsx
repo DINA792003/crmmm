@@ -13,8 +13,9 @@ import {
   Plus,
   Save,
   Search,
-  Settings2,
   Trash2,
+  Undo2,
+  Redo2,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ interface Field {
   groupableInRows?: boolean;
   isIdentifier?: boolean;
 }
+type DateGroupBucket = "day" | "week" | "month" | "quarter" | "year";
 interface ReportObject {
   name: string;
   label: string;
@@ -36,46 +38,158 @@ interface ReportObject {
 interface FilterRule {
   field: string;
   operator: string;
-  value: string;
+  value: string | { start: string; end: string };
+}
+interface ColumnConfig {
+  field: string;
+  label: string;
+  visible: boolean;
+  aggregation: "none" | "count" | "uniqueCount" | "sum" | "avg" | "min" | "max";
 }
 interface Aggregate {
   function: "count" | "sum" | "avg" | "min" | "max";
   field: string;
+}
+interface BuilderSnapshot {
+  selectedFields: string[];
+  rowGroups: string[];
+  columnGroups: string[];
+  filters: FilterRule[];
+  sortBy: string;
+  sortOrder: "asc" | "desc";
+  secondarySortBy: string;
+  secondarySortOrder: "asc" | "desc";
 }
 interface Result {
   columns: string[];
   rows: Record<string, unknown>[];
   totalRows: number;
   summary?: Record<string, number>;
-  groups?: { group: string; groupValues?: Record<string, string>; count: number; summary: Record<string, number>; rows?: Record<string, unknown>[] }[];
+  groups?: { key?: string; group: string; groupValues?: Record<string, string>; count: number; summary: Record<string, number>; rows?: Record<string, unknown>[] }[];
   columnGroups?: { group: string; count: number }[];
   pivot?: {
     columns: string[];
+    columnValues?: Record<string, Record<string, string>>;
     rows: { group: string; groupValues?: Record<string, string>; values: Record<string, number> }[];
     aggregateLabel?: string;
   };
+}
+
+interface GroupTreeNode {
+  key: string;
+  field: string;
+  value: string;
+  values: Record<string, string>;
+  depth: number;
+  count: number;
+  summary: Record<string, number>;
+  rows: Record<string, unknown>[];
+  children: GroupTreeNode[];
+}
+
+function buildGroupTree(
+  groups: NonNullable<Result["groups"]>,
+  fields: string[],
+): GroupTreeNode[] {
+  const roots: GroupTreeNode[] = [];
+
+  for (const group of groups) {
+    let nodes = roots;
+    let parentKey = "root";
+    fields.forEach((field, depth) => {
+      const value = group.groupValues?.[field] || "(Blank)";
+      const key = `${parentKey}/${field}=${value}`;
+      let node = nodes.find((candidate) => candidate.key === key);
+      if (!node) {
+        node = { key, field, value, values: {}, depth, count: 0, summary: {}, rows: [], children: [] };
+        nodes.push(node);
+      }
+      node.values[field] = value;
+      node.count += depth === fields.length - 1 ? group.count : 0;
+      for (const [label, amount] of Object.entries(group.summary || {})) {
+        node.summary[label] = (node.summary[label] || 0) + (depth === fields.length - 1 ? amount : 0);
+      }
+      if (depth === fields.length - 1) node.rows.push(...(group.rows || []));
+      nodes = node.children;
+      parentKey = key;
+    });
+  }
+
+  const addParentTotals = (nodes: GroupTreeNode[]) => {
+    for (const node of nodes) {
+      addParentTotals(node.children);
+      if (node.children.length) {
+        node.count = node.children.reduce((sum, child) => sum + child.count, 0);
+        node.summary = node.children.reduce<Record<string, number>>((totals, child) => {
+          for (const [label, amount] of Object.entries(child.summary)) totals[label] = (totals[label] || 0) + amount;
+          return totals;
+        }, {});
+      }
+    }
+  };
+  addParentTotals(roots);
+  return roots;
 }
 
 const operators = [
   "equals",
   "notEquals",
   "contains",
+  "notContains",
   "startsWith",
   "endsWith",
   "gt",
   "gte",
   "lt",
   "lte",
+  "isBlank",
+  "isNotBlank",
+  "in",
+  "notIn",
 ];
+const getAvailableOperators = (type: string) => {
+  const normalized = type.toLowerCase();
+
+  if (normalized.includes("date")) {
+    return [
+      "equals",
+      "notEquals",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+    ];
+  }
+
+  if (normalized === "number" || normalized === "currency" || normalized === "decimal") {
+    return [
+      "equals",
+      "notEquals",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+    ];
+  }
+
+  return operators;
+};
 const relativeDateOperators = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
+  { value: "tomorrow", label: "Tomorrow" },
   { value: "thisWeek", label: "This Week" },
   { value: "lastWeek", label: "Last Week" },
+  { value: "nextWeek", label: "Next Week" },
   { value: "thisMonth", label: "This Month" },
   { value: "lastMonth", label: "Last Month" },
+  { value: "nextMonth", label: "Next Month" },
+  { value: "thisQuarter", label: "This Quarter" },
+  { value: "lastQuarter", label: "Last Quarter" },
   { value: "thisYear", label: "This Year" },
+  { value: "lastYear", label: "Last Year" },
   { value: "last90Days", label: "Last 90 Days" },
+  { value: "customRange", label: "Custom Date Range" },
 ];
 const crossFilterRelations: Record<string, string[]> = {
   Lead: ["Contact", "SiteVisit", "Opportunity", "Quotation", "Booking", "Task", "Customer"],
@@ -99,26 +213,41 @@ export default function NewReportPage() {
   const [objects, setObjects] = React.useState<ReportObject[]>([]);
   const [selectedObject, setSelectedObject] = React.useState("");
   const [selectedFields, setSelectedFields] = React.useState<string[]>([]);
+  const [columnLabels, setColumnLabels] = React.useState<Record<string, string>>({});
+  const [hiddenColumns, setHiddenColumns] = React.useState<string[]>([]);
+  const [columnAggregations, setColumnAggregations] = React.useState<Record<string, ColumnConfig["aggregation"]>>({});
   const [filters, setFilters] = React.useState<FilterRule[]>([]);
   const [filterFieldPicker, setFilterFieldPicker] = React.useState("");
+  const [filterFieldPickerOpen, setFilterFieldPickerOpen] = React.useState(false);
   const [groupBy, setGroupBy] = React.useState("");
   const [groupColumn, setGroupColumn] = React.useState("");
   const [rowGroups, setRowGroups] = React.useState<string[]>([]);
   const [columnGroups, setColumnGroups] = React.useState<string[]>([]);
+    const [groupDateBuckets, setGroupDateBuckets] = React.useState<Record<string, DateGroupBucket>>({});
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<string, boolean>>({});
   const [rowGroupSearch, setRowGroupSearch] = React.useState("");
   const [columnGroupSearch, setColumnGroupSearch] = React.useState("");
   const [rowGroupPickerOpen, setRowGroupPickerOpen] = React.useState(false);
   const [columnGroupPickerOpen, setColumnGroupPickerOpen] = React.useState(false);
+  const [rowGroupHighlight, setRowGroupHighlight] = React.useState(0);
+  const [columnGroupHighlight, setColumnGroupHighlight] = React.useState(0);
+  const rowGroupPickerRef = React.useRef<HTMLDivElement>(null);
+  const columnGroupPickerRef = React.useRef<HTMLDivElement>(null);
+  const columnPickerRef = React.useRef<HTMLDivElement>(null);
+  const filterFieldPickerRef = React.useRef<HTMLDivElement>(null);
   const [crossFilterObject, setCrossFilterObject] = React.useState("");
   const [crossFilterMode, setCrossFilterMode] = React.useState<"with" | "without">("with");
   const [sortBy, setSortBy] = React.useState("");
   const [sortOrder, setSortOrder] = React.useState<"asc" | "desc">("desc");
+  const [secondarySortBy, setSecondarySortBy] = React.useState("");
+  const [secondarySortOrder, setSecondarySortOrder] = React.useState<"asc" | "desc">("asc");
   const [aggregates, setAggregates] = React.useState<Aggregate[]>([
     { function: "count", field: "" },
   ]);
   const [reportName, setReportName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [fieldSearch, setFieldSearch] = React.useState("");
+  const [columnPickerOpen, setColumnPickerOpen] = React.useState(false);
   const [panel, setPanel] = React.useState<"outline" | "filters">("outline");
   const [result, setResult] = React.useState<Result | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -127,19 +256,35 @@ export default function NewReportPage() {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
   const [saveOpen, setSaveOpen] = React.useState(false);
+  const [showFolderPicker, setShowFolderPicker] = React.useState(false);
+  const [reportUniqueName, setReportUniqueName] = React.useState("");
+  const [folders, setFolders] = React.useState<{ id: string; name: string }[]>([]);
+  const [folderSearch, setFolderSearch] = React.useState("");
+  const [selectedFolderId, setSelectedFolderId] = React.useState<string | null>(null);
+  const [folderMenuOpen, setFolderMenuOpen] = React.useState(false);
+  const [folderPickerSearch, setFolderPickerSearch] = React.useState("");
   const [editingReportId, setEditingReportId] = React.useState<string | null>(null);
   const editHydrated = React.useRef(false);
+  const closingRef = React.useRef(false);
   const [autoPreview, setAutoPreview] = React.useState(true);
   const [filterLogic, setFilterLogic] = React.useState<"AND" | "OR">("AND");
+  const [filterExpression, setFilterExpression] = React.useState("");
   const [filterLogicOpen, setFilterLogicOpen] = React.useState(false);
-  const [formulaOpen, setFormulaOpen] = React.useState(false);
-  const [formulaName, setFormulaName] = React.useState("");
-  const [formulaExpression, setFormulaExpression] = React.useState("");
+  const [filterActionsOpen, setFilterActionsOpen] = React.useState(false);
+  const [rowLimitEditorOpen, setRowLimitEditorOpen] = React.useState(false);
   const [showRowCounts, setShowRowCounts] = React.useState(true);
   const [showDetailRows, setShowDetailRows] = React.useState(true);
   const [showSubtotals, setShowSubtotals] = React.useState(false);
   const [showGrandTotal, setShowGrandTotal] = React.useState(true);
-  const [showStackedSummaries, setShowStackedSummaries] = React.useState(true);
+  const [reportFormat, setReportFormat] = React.useState<"TABULAR" | "SUMMARY" | "MATRIX" | "JOINED">("TABULAR");
+  const [rowLimit, setRowLimit] = React.useState(10000);
+  const [showChart, setShowChart] = React.useState(false);
+  const [conditionalFormatting, setConditionalFormatting] = React.useState(false);
+  const [historyVersion, setHistoryVersion] = React.useState(0);
+  const historyRef = React.useRef<BuilderSnapshot[]>([]);
+  const futureRef = React.useRef<BuilderSnapshot[]>([]);
+  const previousSnapshotRef = React.useRef<BuilderSnapshot | null>(null);
+  const restoringSnapshotRef = React.useRef(false);
 
   const object = objects.find((item) => item.name === selectedObject);
   const fields = object?.fields || [];
@@ -176,8 +321,94 @@ export default function NewReportPage() {
     ["number", "currency", "decimal"].includes(field.type.toLowerCase()),
   );
 
+  const currentSnapshot = React.useMemo<BuilderSnapshot>(() => ({
+    selectedFields,
+    rowGroups,
+    columnGroups,
+    filters,
+    sortBy,
+    sortOrder,
+    secondarySortBy,
+    secondarySortOrder,
+  }), [selectedFields, rowGroups, columnGroups, filters, sortBy, sortOrder, secondarySortBy, secondarySortOrder]);
+
   React.useEffect(() => {
+    if (!previousSnapshotRef.current) {
+      previousSnapshotRef.current = currentSnapshot;
+      return;
+    }
+    if (restoringSnapshotRef.current) {
+      restoringSnapshotRef.current = false;
+      previousSnapshotRef.current = currentSnapshot;
+      return;
+    }
+    if (JSON.stringify(previousSnapshotRef.current) !== JSON.stringify(currentSnapshot)) {
+      historyRef.current = [...historyRef.current.slice(-19), previousSnapshotRef.current];
+      futureRef.current = [];
+      previousSnapshotRef.current = currentSnapshot;
+      setHistoryVersion((version) => version + 1);
+    }
+  }, [currentSnapshot]);
+
+  const restoreSnapshot = (snapshot: BuilderSnapshot) => {
+    restoringSnapshotRef.current = true;
+    setSelectedFields(snapshot.selectedFields);
+    setRowGroups(snapshot.rowGroups);
+    setColumnGroups(snapshot.columnGroups);
+    setGroupBy(snapshot.rowGroups[0] || "");
+    setGroupColumn(snapshot.columnGroups[0] || "");
+    setFilters(snapshot.filters);
+    setSortBy(snapshot.sortBy);
+    setSortOrder(snapshot.sortOrder);
+    setSecondarySortBy(snapshot.secondarySortBy);
+    setSecondarySortOrder(snapshot.secondarySortOrder);
+  };
+
+  const undoBuilderChange = () => {
+    const snapshot = historyRef.current.pop();
+    if (!snapshot || !previousSnapshotRef.current) return;
+    futureRef.current = [...futureRef.current, previousSnapshotRef.current];
+    restoreSnapshot(snapshot);
+    previousSnapshotRef.current = snapshot;
+    setHistoryVersion((version) => version + 1);
+  };
+
+  const redoBuilderChange = () => {
+    const snapshot = futureRef.current.pop();
+    if (!snapshot || !previousSnapshotRef.current) return;
+    historyRef.current = [...historyRef.current, previousSnapshotRef.current];
+    restoreSnapshot(snapshot);
+    previousSnapshotRef.current = snapshot;
+    setHistoryVersion((version) => version + 1);
+  };
+
+  React.useEffect(() => {
+    const handleOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node;
+      const pickerTarget = target instanceof Element ? target.closest("[data-group-picker]") : null;
+      if (!rowGroupPickerRef.current?.contains(target) && pickerTarget?.getAttribute("data-group-picker") !== "rows") setRowGroupPickerOpen(false);
+      if (!columnGroupPickerRef.current?.contains(target) && pickerTarget?.getAttribute("data-group-picker") !== "columns") setColumnGroupPickerOpen(false);
+      if (!columnPickerRef.current?.contains(target) && pickerTarget?.getAttribute("data-column-picker") !== "columns") setColumnPickerOpen(false);
+      if (!filterFieldPickerRef.current?.contains(target)) setFilterFieldPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointer);
+  }, []);
+
+  React.useEffect(() => {
+    setRowGroupHighlight(0);
+  }, [rowGroupSearch]);
+
+  React.useEffect(() => {
+    setColumnGroupHighlight(0);
+  }, [columnGroupSearch]);
+
+  React.useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
     setEditingReportId(new URLSearchParams(window.location.search).get("edit"));
+    const requestedFormat = query.get("format");
+    if (["TABULAR", "SUMMARY", "MATRIX", "JOINED"].includes(requestedFormat || "")) setReportFormat(requestedFormat as "TABULAR" | "SUMMARY" | "MATRIX" | "JOINED");
+    setSelectedFolderId(query.get("folderId"));
     fetch("/api/proxy/api/reports/metadata", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json();
@@ -187,8 +418,8 @@ export default function NewReportPage() {
           Array.isArray(body.data) ? body.data : body.data?.objects || []
         )
           .map((item: any) => ({
-            name: item.name || item.objectName,
-            label: item.label || item.name,
+            name: item.name || item.objectName || item.object,
+            label: item.label || item.name || item.object,
             fields: (item.fields || []).map((field: any) => ({
               key: field.key || field.name,
               label: field.label || field.key || field.name,
@@ -203,8 +434,9 @@ export default function NewReportPage() {
         const requested = new URLSearchParams(window.location.search).get(
           "object",
         );
+        const requestedObject = requested && requested !== "undefined" ? requested : "";
         setSelectedObject(
-          data.find((item: ReportObject) => item.name === requested)?.name ||
+          data.find((item: ReportObject) => item.name === requestedObject)?.name ||
             data[0]?.name ||
             "",
         );
@@ -220,6 +452,18 @@ export default function NewReportPage() {
   }, []);
 
   React.useEffect(() => {
+    if (!saveOpen) return;
+
+    fetch("/api/proxy/api/report-folders?view=all", { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok || !body.success) throw new Error(body.error || "Unable to load folders");
+        setFolders(Array.isArray(body.data) ? body.data : []);
+      })
+      .catch(() => setFolders([]));
+  }, [saveOpen]);
+
+  React.useEffect(() => {
     if (!object || !editingReportId || editHydrated.current) return;
     editHydrated.current = true;
     fetch(`/api/proxy/api/reports/${editingReportId}`, { cache: "no-store" })
@@ -227,18 +471,55 @@ export default function NewReportPage() {
         const body = await response.json();
         if (!response.ok || !body.success) throw new Error(body.error || "Unable to load report");
         const saved = body.data;
+        const savedObjectName = saved.objectName || object.name;
+        const savedObject = objects.find((item) => item.name === savedObjectName) || object;
+        const savedColumns = Array.isArray(saved.columns)
+          ? saved.columns.filter((field: unknown): field is string => typeof field === "string" && savedObject.fields.some((item) => item.key === field))
+          : [];
         setReportName(saved.name || "");
         setDescription(saved.description || "");
-        setSelectedObject(saved.objectName || object.name);
-        setSelectedFields(Array.isArray(saved.columns) ? saved.columns : []);
+        if (["TABULAR", "SUMMARY", "MATRIX", "JOINED"].includes(saved.type)) setReportFormat(saved.type);
+        setSelectedObject(savedObjectName);
+        setSelectedFields(savedColumns.length ? savedColumns : savedObject.fields.slice(0, 3).map((field) => field.key));
+        const savedConfig = saved.config && typeof saved.config === "object" ? saved.config : {};
+        setColumnLabels(savedConfig.columnLabels || {});
+        setHiddenColumns(Array.isArray(savedConfig.hiddenColumns) ? savedConfig.hiddenColumns : []);
+        setColumnAggregations(savedConfig.columnAggregations || {});
+        setRowLimit(Number(savedConfig.rowLimit) || 10000);
+        setShowChart(savedConfig.showChart === true);
+        setConditionalFormatting(savedConfig.conditionalFormatting === true);
+        setShowRowCounts(savedConfig.showRowCounts !== false);
+        setShowDetailRows(savedConfig.showDetailRows !== false);
+        setShowSubtotals(savedConfig.showSubtotals === true);
+        setShowGrandTotal(savedConfig.showGrandTotal !== false);
         setFilters(Array.isArray(saved.filters) ? saved.filters : []);
         setFilterLogic(saved.filterLogic === "OR" ? "OR" : "AND");
+        setFilterExpression(saved.filterExpression || "");
         setCrossFilterObject(saved.crossFilter?.objectName || "");
         setCrossFilterMode(saved.crossFilter?.mode === "without" ? "without" : "with");
-        setGroupBy(saved.groupBy || "");
-        setGroupColumn(saved.groupColumn || "");
-        setRowGroups(Array.isArray(saved.rowGroups) ? saved.rowGroups : saved.groupBy ? [saved.groupBy] : []);
-        setColumnGroups(Array.isArray(saved.columnGroups) ? saved.columnGroups : saved.groupColumn ? [saved.groupColumn] : []);
+        const savedRowGroups = Array.isArray(saved.rowGroups)
+          ? saved.rowGroups
+          : Array.isArray(savedConfig.rowGroups)
+            ? savedConfig.rowGroups
+            : saved.groupBy
+              ? [saved.groupBy]
+              : [];
+        const savedColumnGroups = Array.isArray(saved.columnGroups)
+          ? saved.columnGroups
+          : Array.isArray(savedConfig.columnGroups)
+            ? savedConfig.columnGroups
+            : saved.groupColumn
+              ? [saved.groupColumn]
+              : [];
+        const normalizedRowGroups = savedRowGroups.filter((field: unknown): field is string => typeof field === "string" && !savedColumnGroups.includes(field));
+        const normalizedColumnGroups = normalizedRowGroups.length ? savedColumnGroups : [];
+        setGroupBy(saved.groupBy && !normalizedColumnGroups.includes(saved.groupBy) ? saved.groupBy : normalizedRowGroups[0] || "");
+        setGroupColumn(saved.groupColumn && normalizedColumnGroups.includes(saved.groupColumn) ? saved.groupColumn : normalizedColumnGroups[0] || "");
+        setSelectedFolderId(saved.folderId || saved.folder?.id || null);
+        setFolderSearch(saved.folder?.name || "");
+        setRowGroups(normalizedRowGroups);
+        setColumnGroups(normalizedColumnGroups);
+          setGroupDateBuckets(savedConfig.groupDateBuckets || {});
         setSortBy(saved.sortBy || "");
         setSortOrder(saved.sortOrder === "asc" ? "asc" : "desc");
         setAggregates(Array.isArray(saved.aggregates) && saved.aggregates.length ? saved.aggregates : [{ function: "count", field: "" }]);
@@ -257,6 +538,7 @@ export default function NewReportPage() {
     setGroupColumn("");
     setRowGroups([]);
     setColumnGroups([]);
+      setGroupDateBuckets({});
     setRowGroupSearch("");
     setColumnGroupSearch("");
     setCrossFilterObject("");
@@ -273,12 +555,45 @@ export default function NewReportPage() {
   const fieldLabel = (key: string) =>
     fields.find((field) => field.key === key)?.label || key;
   const fieldType = (key: string) => fields.find((field) => field.key === key)?.type.toLowerCase() || "string";
-  const toggleField = (key: string) =>
-    setSelectedFields((current) =>
-      current.includes(key)
+  const columnLabel = (key: string) => columnLabels[key] || fieldLabel(key);
+  const allowedAggregations = (key: string): ColumnConfig["aggregation"][] =>
+    ["number", "currency", "decimal"].includes(fieldType(key))
+      ? ["none", "sum", "avg", "min", "max", "count", "uniqueCount"]
+      : ["none", "count", "uniqueCount"];
+  const removeFieldFromColumns = (key: string) => {
+    setSelectedFields((current) => {
+      const next = current.filter((item) => item !== key);
+      if (next.length !== current.length && next.length === 0) {
+        setResult(null);
+        setHasRun(false);
+      }
+      return next;
+    });
+  };
+  const toggleField = (key: string) => {
+    const isSelected = selectedFields.includes(key);
+    if (!isSelected) {
+      setRowGroups((current) => current.filter((item) => item !== key));
+      setColumnGroups((current) => current.filter((item) => item !== key));
+      if (groupBy === key) setGroupBy("");
+      if (groupColumn === key) setGroupColumn("");
+    }
+    setSelectedFields((current) => {
+      const next = isSelected
         ? current.filter((item) => item !== key)
-        : [...current, key],
-    );
+        : [...current, key];
+      if (next.length === 0) {
+        setResult(null);
+        setHasRun(false);
+      }
+      return next;
+    });
+  };
+  const clearSelectedFields = () => {
+    setSelectedFields([]);
+    setResult(null);
+    setHasRun(false);
+  };
   const addFilter = (field = filterFieldPicker || fields[0]?.key || "") =>
     setFilters((current) => [
       ...current,
@@ -290,23 +605,124 @@ export default function NewReportPage() {
       { function: "sum", field: numericFields[0]?.key || "" },
     ]);
   const addRowGroup = (field: string) => {
-    if (!field || rowGroups.includes(field)) return;
-    setRowGroups((current) => [...current, field]);
+    if (!field || rowGroups.includes(field)) {
+      if (field) setError(`${fieldLabel(field)} is already grouped.`);
+      return;
+    }
+    const nextRowGroups = rowGroups.filter((item) => item !== field);
+    if (nextRowGroups.length >= 2) {
+      setError("You can add up to 2 row groupings.");
+      return;
+    }
+    if (columnGroups.includes(field)) {
+      setColumnGroups((current) => current.filter((item) => item !== field));
+      if (groupColumn === field) setGroupColumn(columnGroups.find((item) => item !== field) || "");
+    }
+    removeFieldFromColumns(field);
+    setRowGroups((current) => [...current.filter((item) => item !== field), field]);
+    if (fieldType(field) === "date") setGroupDateBuckets((current) => ({ ...current, [field]: current[field] || "day" }));
     if (!groupBy) setGroupBy(field);
+    setRowGroupPickerOpen(false);
+    setError("");
   };
+  const moveGroup = (groups: string[], setGroups: React.Dispatch<React.SetStateAction<string[]>>, field: string, direction: -1 | 1) => {
+    const index = groups.indexOf(field);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= groups.length) return;
+    setGroups((current) => {
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
+  const reorderGroup = (field: string, axis: "rows" | "columns", targetIndex: number) => {
+    const setGroups = axis === "rows" ? setRowGroups : setColumnGroups;
+    setGroups((current) => {
+      const sourceIndex = current.indexOf(field);
+      if (sourceIndex < 0 || sourceIndex === targetIndex) return current;
+      const next = [...current];
+      next.splice(sourceIndex, 1);
+      next.splice(Math.min(targetIndex, next.length), 0, field);
+      return next;
+    });
+  };
+  const moveColumn = (field: string, direction: -1 | 1) => moveGroup(selectedFields, setSelectedFields, field, direction);
   const removeRowGroup = (field: string) => {
-    setRowGroups((current) => current.filter((item) => item !== field));
+    const nextRowGroups = rowGroups.filter((item) => item !== field);
+    setRowGroups(nextRowGroups);
+    if (nextRowGroups.length === 0) {
+      setColumnGroups([]);
+      setGroupColumn("");
+    }
     if (groupBy === field)
       setGroupBy(rowGroups.find((item) => item !== field) || "");
+    setCollapsedGroups((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
   };
   const addColumnGroup = (field: string) => {
-    if (!field || columnGroups.includes(field)) return;
-    setColumnGroups((current) => [...current, field]);
+    if (!field || columnGroups.includes(field)) {
+      if (field) setError(`${fieldLabel(field)} is already grouped.`);
+      return;
+    }
+    const nextColumnGroups = columnGroups.filter((item) => item !== field);
+    if (nextColumnGroups.length >= 2) {
+      setError("You can add up to 2 column groupings.");
+      return;
+    }
+    if (rowGroups.includes(field)) {
+      setRowGroups((current) => current.filter((item) => item !== field));
+      if (groupBy === field) setGroupBy(rowGroups.find((item) => item !== field) || "");
+    }
+    removeFieldFromColumns(field);
+    setColumnGroups((current) => [...current.filter((item) => item !== field), field]);
+    if (fieldType(field) === "date") setGroupDateBuckets((current) => ({ ...current, [field]: current[field] || "day" }));
     if (!groupColumn) setGroupColumn(field);
+    setColumnGroupPickerOpen(false);
+    setError("");
   };
   const removeColumnGroup = (field: string) => {
     setColumnGroups((current) => current.filter((item) => item !== field));
     if (groupColumn === field) setGroupColumn(columnGroups.find((item) => item !== field) || "");
+  };
+  const moveGroupBetweenAxes = (field: string, from: "rows" | "columns", to: "rows" | "columns") => {
+    if (from === to) return;
+    if (to === "rows") {
+      if (rowGroups.length >= 2) {
+        setError("You can add up to 2 row groupings.");
+        return;
+      }
+      if (rowGroups.includes(field)) return;
+      setRowGroups((current) => [...current, field]);
+      setColumnGroups((current) => current.filter((item) => item !== field));
+      setGroupBy(rowGroups[0] || field);
+      if (groupColumn === field) setGroupColumn(columnGroups.find((item) => item !== field) || "");
+    } else {
+      if (columnGroups.length >= 2) {
+        setError("You can add up to 2 column groupings.");
+        return;
+      }
+      if (columnGroups.includes(field)) return;
+      setColumnGroups((current) => [...current, field]);
+      setRowGroups((current) => current.filter((item) => item !== field));
+      setGroupColumn(columnGroups[0] || field);
+      if (groupBy === field) setGroupBy(rowGroups.find((item) => item !== field) || "");
+    }
+    setError("");
+  };
+  const handleGroupDrop = (event: React.DragEvent, axis: "rows" | "columns") => {
+    event.preventDefault();
+    const field = event.dataTransfer.getData("text/plain");
+    const from = event.dataTransfer.getData("group-axis");
+    if (!field) return;
+    if (from === "fields") {
+      if (axis === "rows") addRowGroup(field);
+      else addColumnGroup(field);
+    } else if (from === "rows" || from === "columns") {
+      moveGroupBetweenAxes(field, from, axis);
+    }
   };
   const validFilters = filters.filter(
     (filter) => filter.field && (filter.value !== "" || relativeDateOperators.some((operator) => operator.value === filter.operator)),
@@ -336,10 +752,10 @@ export default function NewReportPage() {
     return showRowCounts && count > 0 ? `${value} (${count})` : value;
   };
 
-  const runReport = async (preview = false) => {
+  const runReport = async (preview = false): Promise<Result | null> => {
     if (!selectedObject || selectedFields.length === 0) {
       setError("Select at least one field before running the report.");
-      return;
+      return null;
     }
     try {
       setRunning(true);
@@ -349,18 +765,21 @@ export default function NewReportPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           objectName: selectedObject,
-          columns: selectedFields,
+          columns: selectedFields.filter((field) => !hiddenColumns.includes(field)),
           filters: validFilters,
+          filterExpression: filterExpression.trim() || undefined,
           crossFilter: crossFilterObject ? { objectName: crossFilterObject, mode: crossFilterMode } : null,
           filterLogic,
           groupBy: rowGroups[0] || undefined,
           groupColumn: columnGroups[0] || undefined,
           rowGroups,
           columnGroups,
+          groupOptions: Object.fromEntries(Object.entries(groupDateBuckets).map(([field, dateBucket]) => [field, { dateBucket }])),
           sortBy: sortBy || undefined,
           sortOrder,
-          limit: preview ? 10 : 10000,
-          aggregates: validAggregates,
+          sortRules: [sortBy && { field: sortBy, order: sortOrder }, secondarySortBy && { field: secondarySortBy, order: secondarySortOrder }].filter(Boolean),
+          limit: preview ? Math.min(rowLimit, 20) : rowLimit,
+          aggregates: [...validAggregates, ...selectedFields.filter((field) => !hiddenColumns.includes(field) && columnAggregations[field] && columnAggregations[field] !== "none").map((field) => ({ function: columnAggregations[field] === "uniqueCount" ? "uniqueCount" : columnAggregations[field], field, label: columnLabel(field) }))],
         }),
       });
       const body = await response.json();
@@ -368,22 +787,24 @@ export default function NewReportPage() {
         throw new Error(body.error || body.message || "Unable to run report");
       setResult(body.data);
       if (!preview) setHasRun(true);
+      return body.data;
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
           : "Unable to run report",
       );
+      return null;
     } finally {
       setRunning(false);
     }
   };
 
   React.useEffect(() => {
-    if (!autoPreview || !selectedObject || selectedFields.length === 0 || loading) return;
+    if (closingRef.current || !autoPreview || !selectedObject || selectedFields.length === 0 || loading) return;
     const timer = window.setTimeout(() => void runReport(true), 250);
     return () => window.clearTimeout(timer);
-  }, [autoPreview, selectedObject, selectedFields, filters, filterLogic, rowGroups, columnGroups, sortBy, sortOrder, loading]);
+  }, [autoPreview, selectedObject, selectedFields, filters, filterLogic, filterExpression, rowGroups, columnGroups, groupDateBuckets, sortBy, sortOrder, secondarySortBy, secondarySortOrder, rowLimit, loading]);
 
   const saveReport = async () => {
     if (!reportName.trim()) {
@@ -398,20 +819,29 @@ export default function NewReportPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: reportName.trim(),
-          description: description.trim() || null,
-          type: groupBy ? "SUMMARY" : "TABULAR",
+          uniqueName: reportUniqueName.trim() || undefined,
+          config: { columnLabels, hiddenColumns, columnAggregations, filterExpression, rowLimit, showChart, conditionalFormatting, reportFormat, showRowCounts, showDetailRows, showSubtotals, showGrandTotal, groupDateBuckets, rowGroups, columnGroups },
+          description: description.trim() || undefined,
+          type: reportFormat,
           objectName: selectedObject,
-          columns: selectedFields,
+          columns: selectedFields.filter((field) => !hiddenColumns.includes(field)),
           filters: validFilters,
+          filterExpression: filterExpression.trim() || undefined,
           crossFilter: crossFilterObject ? { objectName: crossFilterObject, mode: crossFilterMode } : null,
-          aggregates: validAggregates,
-          groupBy: rowGroups[0] || null,
-          groupColumn: columnGroups[0] || null,
+          aggregates: [...validAggregates, ...selectedFields.filter((field) => !hiddenColumns.includes(field) && columnAggregations[field] && columnAggregations[field] !== "none").map((field) => ({ function: columnAggregations[field] === "uniqueCount" ? "uniqueCount" : columnAggregations[field], field, label: columnLabel(field) }))],
+          groupBy: rowGroups[0] || undefined,
+          groupColumn: columnGroups[0] || undefined,
           rowGroups,
           columnGroups,
+          groupOptions: Object.fromEntries(Object.entries(groupDateBuckets).map(([field, dateBucket]) => [field, { dateBucket }])),
           filterLogic,
-          sortBy: sortBy || null,
+          sortBy: sortBy || undefined,
           sortOrder,
+          sortRules: [sortBy && { field: sortBy, order: sortOrder }, secondarySortBy && { field: secondarySortBy, order: secondarySortOrder }].filter(Boolean),
+          rowLimit,
+          chart: showChart ? { enabled: true } : undefined,
+          conditionalFormatting: conditionalFormatting ? { enabled: true } : undefined,
+          folderId: selectedFolderId || undefined,
           isShared: false,
         }),
       });
@@ -431,6 +861,129 @@ export default function NewReportPage() {
     }
   };
 
+  const runAndPreviewReport = async () => {
+    setAutoPreview(false);
+    const previewResult = await runReport();
+    if (!previewResult) return;
+    const previewId = editingReportId || "new";
+    sessionStorage.setItem(`report-preview:${previewId}`, JSON.stringify({
+      result: previewResult,
+      report: {
+        id: previewId,
+        name: reportName || "Untitled Report",
+        description,
+        type: reportFormat,
+        objectName: selectedObject,
+        columns: selectedFields.filter((field) => !hiddenColumns.includes(field)),
+        filters: validFilters,
+        filterLogic,
+        aggregates: validAggregates,
+        groupBy: rowGroups[0] || null,
+        groupColumn: columnGroups[0] || null,
+        rowGroups,
+        columnGroups,
+        crossFilter: crossFilterObject ? { objectName: crossFilterObject, mode: crossFilterMode } : null,
+        sortBy: sortBy || null,
+        sortOrder,
+        config: { showRowCounts, showDetailRows, showSubtotals, showGrandTotal, rowGroups, columnGroups, groupDateBuckets },
+      },
+    }));
+    router.push(editingReportId ? `/reports/${encodeURIComponent(editingReportId)}` : "/reports/preview");
+  };
+
+  const closeReportBuilder = () => {
+    closingRef.current = true;
+    setAutoPreview(false);
+    historyRef.current = [];
+    futureRef.current = [];
+    const destination = editingReportId ? `/reports/${encodeURIComponent(editingReportId)}` : "/reports";
+    window.location.replace(destination);
+  };
+
+  const filteredFolders = folders.filter((folder) =>
+    folder.name.toLowerCase().includes(folderSearch.toLowerCase()),
+  );
+  const filteredPickerFolders = folders.filter((folder) =>
+    folder.name.toLowerCase().includes(folderPickerSearch.toLowerCase()),
+  );
+  const selectedFolderName =
+    folders.find((folder) => folder.id === selectedFolderId)?.name || "Private Reports";
+  const pivotColumnHeaders = result?.pivot?.columns.map((column) => ({
+    label: column,
+    primary: result.pivot?.columnValues?.[column]?.[columnGroups[0]] || column,
+    secondary: columnGroups.length > 1 ? result.pivot?.columnValues?.[column]?.[columnGroups[1]] || "(Blank)" : "",
+  })) || [];
+  const displayGroups = React.useMemo(() => {
+    if (!result || !rowGroups.length) return [];
+    if (result.groups?.length) return result.groups;
+    const grouped = new Map<string, NonNullable<Result["groups"]>[number]>();
+    for (const row of result.rows) {
+      const groupValues = Object.fromEntries(rowGroups.map((field) => [field, row[field] == null || row[field] === "" ? "(Blank)" : String(row[field])]));
+      const group = Object.values(groupValues).join(" / ") || "All records";
+      const current = grouped.get(group);
+      if (current) {
+        current.count += 1;
+        current.rows = [...(current.rows || []), row];
+      } else {
+        grouped.set(group, { group, groupValues, count: 1, summary: {}, rows: [row] });
+      }
+    }
+    return [...grouped.values()];
+  }, [result, rowGroups]);
+  const groupTree = displayGroups.length && rowGroups.length ? buildGroupTree(displayGroups, rowGroups) : [];
+  const renderGroupTree = (nodes: GroupTreeNode[]): React.ReactNode[] => nodes.flatMap((node) => {
+    const collapsed = Boolean(collapsedGroups[node.key] || collapsedGroups[node.field]);
+    const summaryLabels = Object.keys(node.summary);
+    const detailRows = showDetailRows && node.children.length === 0 && !collapsed
+      ? node.rows.slice(0, hasRun ? node.rows.length : 20)
+      : [];
+    return [
+      <tr key={node.key} className={`border-b border-slate-200 hover:bg-slate-50 ${node.depth === 0 ? "font-medium" : "text-slate-700"}`}>
+        {rowGroups.map((field, index) => <td key={field} className="border-r border-slate-200 px-3 py-2" style={{ paddingLeft: `${12 + (node.depth > 0 && index === node.depth ? 20 : 0)}px` }}>
+          {index === node.depth && <button type="button" onClick={() => setCollapsedGroups((current) => ({ ...current, [node.key]: !collapsed }))} className="mr-1 text-[10px]" aria-label={`${collapsed ? "Expand" : "Collapse"} ${node.value}`}>{collapsed ? "▶" : "▼"}</button>}
+          {index === node.depth ? formatGroupedValue(field, node.value) : ""}
+        </td>)}
+        {showRowCounts && <td className="border-r border-slate-200 px-3 py-2 text-center">{node.count}</td>}
+        {summaryLabels.map((label) => <td key={label} className="border-r border-slate-200 px-3 py-2 text-center">{node.summary[label] ?? 0}</td>)}
+      </tr>,
+      ...(!collapsed ? renderGroupTree(node.children) : []),
+      ...detailRows.map((row, rowIndex) => <tr key={`${node.key}-detail-${rowIndex}`} className="border-b border-slate-100 bg-slate-50/40">
+        <td colSpan={rowGroups.length + (showRowCounts ? 1 : 0) + summaryLabels.length} className="p-0">
+          <div className="grid min-w-[700px] border-l-2 border-primary/20 text-xs text-slate-600" style={{ gridTemplateColumns: `repeat(${result?.columns.length || 1}, minmax(120px, 1fr))` }}>
+            {result?.columns.map((column) => <div key={column} className="border-r border-slate-100 px-3 py-1.5"><span className="mr-1 text-[10px] font-medium text-slate-400">{fieldLabel(column)}:</span>{row[column] == null ? "-" : String(row[column])}</div>)}
+          </div>
+        </td>
+      </tr>),
+      ...(showSubtotals && node.children.length === 0 ? [<tr key={`${node.key}-subtotal`} className="border-b bg-slate-50 font-semibold"><td colSpan={rowGroups.length + (showRowCounts ? 1 : 0)} className="px-3 py-2 text-right">Subtotal</td>{summaryLabels.map((label) => <td key={label} className="px-3 py-2 text-center">{node.summary[label] ?? 0}</td>)}</tr>] : []),
+    ];
+  });
+  const renderTabularGroupTree = (nodes: GroupTreeNode[]): React.ReactNode[] => nodes.flatMap((node) => {
+    const collapsed = Boolean(collapsedGroups[node.key] || collapsedGroups[node.field]);
+    return [
+      <tr key={`${node.key}-header`} className="border-b border-slate-300 bg-primary/5 hover:bg-primary/10">
+        {rowGroups.map((field, index) => <td key={field} className="border-r border-slate-200 px-3 py-2 font-semibold text-primary">
+          {index === node.depth && <><button type="button" onClick={() => setCollapsedGroups((current) => ({ ...current, [node.key]: !collapsed }))} className="mr-2 text-[10px]" aria-label={`${collapsed ? "Expand" : "Collapse"} ${node.value}`}>{collapsed ? "▶" : "▼"}</button>{node.value}{showRowCounts && <span className="ml-1 font-normal text-muted-foreground">({node.count})</span>}</>}
+        </td>)}
+        {(result?.columns || []).map((column) => <td key={column} className="border-r border-slate-200 px-3 py-2" />)}
+      </tr>,
+      ...(!collapsed ? renderTabularGroupTree(node.children) : []),
+      ...(!collapsed && showDetailRows && node.children.length === 0 ? node.rows.slice(0, hasRun ? node.rows.length : 20).map((row, rowIndex) => <tr key={`${node.key}-detail-${rowIndex}`} className="border-b border-slate-200 hover:bg-slate-50">
+        {rowGroups.map((field) => <td key={field} className="border-r border-slate-200 px-3 py-2" />)}
+        {result?.columns.map((column) => <td key={column} className="border-r border-slate-200 px-3 py-2">{row[column] == null ? "-" : String(row[column])}</td>)}
+      </tr>) : []),
+      ...(showSubtotals && node.children.length === 0 ? [<tr key={`${node.key}-subtotal`} className="border-b bg-slate-50 font-semibold"><td colSpan={rowGroups.length + (result?.columns.length || 0)} className="px-3 py-2 text-right">Subtotal: {node.count}</td></tr>] : []),
+    ];
+  });
+  const renderSummaryGroupRows = (nodes: GroupTreeNode[]): React.ReactElement[] => nodes.flatMap((node) => {
+    if (node.children.length) return renderSummaryGroupRows(node.children);
+    return [
+      <tr key={`${node.key}-summary`} className="border-b border-slate-200 hover:bg-slate-50">
+        {rowGroups.map((field) => <td key={field} className="border-r border-slate-200 px-3 py-2 text-primary">{node.values[field] || "(Blank)"}</td>)}
+        {showRowCounts && <td className="border-r border-slate-200 px-3 py-2 text-center">{node.count}</td>}
+      </tr>,
+    ];
+  });
+
   if (loading)
     return (
       <div className="flex min-h-[520px] items-center justify-center text-sm text-muted-foreground">
@@ -440,62 +993,74 @@ export default function NewReportPage() {
 
   return (
     <div className="-m-4 flex min-h-[calc(100vh-64px)] flex-col bg-slate-50 md:-m-6">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-3 shadow-sm">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/reports" aria-label="Back to reports">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <div>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-              Report <ChevronDown className="h-3 w-3" />
-            </div>
-            <div className="flex items-center gap-2 text-lg font-semibold">
-              {reportName || "Untitled Report"}
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                {object?.label || "Select a Report Type"}
-              </span>
+      <header className="border-b bg-white shadow-sm">
+        <div className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 px-5 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <Button variant="ghost" size="icon" asChild className="shrink-0">
+              <Link href={editingReportId ? `/reports/${encodeURIComponent(editingReportId)}` : "/reports"} aria-label="Back to reports">
+                <ArrowLeft className="h-5 w-5" />
+              </Link>
+            </Button>
+
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase text-[#b52d2d]">
+                <span>Report</span>
+                <ChevronDown className="h-3.5 w-3.5" />
+              </div>
+
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-2xl font-semibold tracking-tight text-slate-800">
+                  {reportName || "Untitled Report"}
+                </h1>
+                <span className="shrink-0 rounded-md bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                  {object?.name || "Select a Report Type"}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" aria-label="Undo" disabled>
-            <span className="text-lg">↶</span>
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Redo" disabled>
-            <span className="text-lg">↷</span>
-          </Button>
-          <label className="hidden items-center gap-2 text-xs text-muted-foreground xl:flex">
-            <input
-              type="checkbox"
-              checked={autoPreview}
-              onChange={(event) => setAutoPreview(event.target.checked)}
-            />
-            Update preview automatically
-          </label>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSaveOpen(true)}
-            disabled={!selectedFields.length}
-          >
-            <Save className="mr-2 h-4 w-4" />
-            Save
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => void runReport()}
-            disabled={running || !selectedFields.length}
-          >
-            <Play className="mr-2 h-4 w-4" />
-            {running ? "Running..." : "Run"}
-          </Button>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <div className="flex overflow-hidden rounded-full border border-slate-400">
+              <Button key={`undo-${historyVersion}`} variant="ghost" size="icon" aria-label="Undo" title="Undo" onClick={undoBuilderChange} disabled={historyRef.current.length === 0}><Undo2 className="h-4 w-4" /></Button>
+              <Button key={`redo-${historyVersion}`} variant="ghost" size="icon" aria-label="Redo" title="Redo" className="border-l" onClick={redoBuilderChange} disabled={futureRef.current.length === 0}><Redo2 className="h-4 w-4" /></Button>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => {
+                if (editingReportId) {
+                  void saveReport();
+                } else {
+                  setSaveOpen(true);
+                }
+              }}
+              disabled={saving || running || !selectedFields.length}
+            >Save &amp; Run</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => {
+                if (editingReportId) {
+                  void saveReport();
+                } else {
+                  setSaveOpen(true);
+                }
+              }}
+              disabled={saving || !selectedFields.length}
+            >
+              Save {!editingReportId && <ChevronDown className="ml-2 h-3.5 w-3.5" />}
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={closeReportBuilder}>Close</Button>
+            <Button type="button" size="sm" className="rounded-full bg-[#d94444] hover:bg-[#bd3636]" onClick={runAndPreviewReport} disabled={running || !selectedFields.length}><Play className="mr-2 h-4 w-4" />{running ? "Running..." : "Run"}</Button>
+          </div>
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="w-full shrink-0 border-b bg-white lg:w-72 lg:border-b-0 lg:border-r">
-          <div className="flex items-center justify-between border-b px-3 py-2">
+          <div className="flex items-center justify-between border-b px-3 py-2.5">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Fields
             </span>
@@ -526,27 +1091,9 @@ export default function NewReportPage() {
             </button>
           </div>
           {panel === "outline" ? (
-            <div className="max-h-[calc(100vh-180px)] overflow-y-auto p-3">
-              <section className="mb-4">
-                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <span>Report Type</span>
-                  <Settings2 className="h-4 w-4" />
-                </div>
-                <select
-                  value={selectedObject}
-                  onChange={(event) => setSelectedObject(event.target.value)}
-                  className="h-9 w-full rounded-md border bg-white px-2 text-sm"
-                >
-                  <option value="">Select a Report Type</option>
-                  {objects.map((item) => (
-                    <option key={item.name} value={item.name}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </section>
-              <section className="mb-4">
-                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="max-h-[calc(100vh-180px)] overflow-y-auto px-4 py-4">
+              <section className="relative mb-7">
+                <div className="mb-4 flex items-center justify-between text-lg font-semibold text-slate-500">
                   <span>Groups</span>
                   <button
                     type="button"
@@ -565,11 +1112,15 @@ export default function NewReportPage() {
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Group Rows
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-slate-500">
+                  <span className="text-base text-slate-500">▤</span> Group Rows
                 </div>
-                <div className="relative">
-                  <div className={`flex h-9 items-center rounded-md border bg-white ${rowGroupPickerOpen ? "border-primary ring-1 ring-primary/20" : "border-slate-300"}`}>
+                <div ref={rowGroupPickerRef} className="relative">
+                  <div
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => handleGroupDrop(event, "rows")}
+                    className={`flex h-9 items-center rounded-md border bg-white ${rowGroupPickerOpen ? "border-primary ring-1 ring-primary/20" : "border-slate-300"}`}
+                  >
                     <Search className="ml-2.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <input
                     value={rowGroupSearch}
@@ -577,13 +1128,20 @@ export default function NewReportPage() {
                     onChange={(event) => setRowGroupSearch(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Escape") setRowGroupPickerOpen(false);
-                      if (event.key === "Enter" && visibleRowGroupFields.length > 0) {
+                      if (event.key === "ArrowDown") {
                         event.preventDefault();
-                        addRowGroup(visibleRowGroupFields[0].key);
+                        setRowGroupHighlight((current) => Math.min(current + 1, Math.max(visibleRowGroupFields.length - 1, 0)));
+                      }
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        setRowGroupHighlight((current) => Math.max(current - 1, 0));
+                      }
+                      if (event.key === "Enter" && visibleRowGroupFields[rowGroupHighlight]) {
+                        event.preventDefault();
+                        addRowGroup(visibleRowGroupFields[rowGroupHighlight].key);
                         setRowGroupSearch("");
                       }
                     }}
-                    onBlur={() => window.setTimeout(() => setRowGroupPickerOpen(false), 150)}
                     placeholder="Add group..."
                     aria-label="Search row group fields"
                     className="h-8 min-w-0 flex-1 bg-transparent px-2 text-xs outline-none"
@@ -591,20 +1149,34 @@ export default function NewReportPage() {
                   </div>
                 </div>
                 {rowGroupPickerOpen && (
-                  <div className="absolute z-50 mt-1 max-h-56 w-[calc(100%-1.5rem)] overflow-y-auto rounded-md border bg-white p-1 shadow-lg">
+                  <div data-group-picker="rows" className="absolute z-50 mt-1 max-h-56 w-[calc(100%-1.5rem)] overflow-y-auto rounded-md border bg-white p-1 shadow-lg">
                     {!rowGroupSearch && <div className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Available Fields</div>}
                     {visibleRowGroupFields.length === 0 ? <div className="px-2 py-2 text-xs text-muted-foreground">No matching fields</div> : visibleRowGroupFields.map((field) => (
-                      <button key={field.key} type="button" onMouseDown={(event) => { event.preventDefault(); addRowGroup(field.key); setRowGroupSearch(""); setRowGroupPickerOpen(true); }} className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs hover:bg-primary/10"><span>{field.label}</span><span className="text-[10px] text-slate-400">{field.key}</span></button>
+                      <button key={field.key} type="button" draggable onDragStart={(event) => { event.dataTransfer.setData("text/plain", field.key); event.dataTransfer.setData("group-axis", "fields"); }} onMouseDown={(event) => { event.preventDefault(); addRowGroup(field.key); setRowGroupSearch(""); }} className={`flex w-full items-center rounded px-2 py-1.5 text-left text-xs ${visibleRowGroupFields[rowGroupHighlight]?.key === field.key ? "bg-primary/10" : "hover:bg-primary/10"}`}><span>{field.label}</span></button>
                     ))}
                   </div>
                 )}
-                {rowGroups.map((field) => (
+                {rowGroups.map((field, index) => (
                   <div
                     key={field}
-                    className="mb-1 flex items-center justify-between rounded-md bg-primary/5 px-2 py-1 text-xs text-primary"
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", field);
+                      event.dataTransfer.setData("group-axis", "rows");
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const draggedField = event.dataTransfer.getData("text/plain");
+                      const from = event.dataTransfer.getData("group-axis") as "rows" | "columns";
+                      if (draggedField && from === "rows") reorderGroup(draggedField, "rows", index);
+                      if (draggedField && from === "columns") moveGroupBetweenAxes(draggedField, from, "rows");
+                    }}
+                    className="group mb-2 flex min-h-10 items-center justify-between rounded-xl border border-transparent bg-slate-100 px-3 py-2 text-sm text-[#5c211d] transition-colors hover:bg-slate-200"
                   >
-                    <span>{fieldLabel(field)}</span>
+                    <span className="min-w-0 truncate">{fieldLabel(field)}</span>
                     <button
+                      title="Remove group"
                       type="button"
                       onClick={() => removeRowGroup(field)}
                       aria-label={`Remove ${fieldLabel(field)} row group`}
@@ -613,11 +1185,16 @@ export default function NewReportPage() {
                     </button>
                   </div>
                 ))}
-                <div className="mb-1 mt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Group Columns
-                </div>
-                <div className="relative">
-                  <div className={`flex h-9 items-center rounded-md border bg-white ${columnGroupPickerOpen ? "border-primary ring-1 ring-primary/20" : "border-slate-300"}`}>
+                {rowGroups.length > 0 && <div className="mb-3 mt-8 flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-slate-500">
+                  <span className="text-base text-slate-500">▥</span> Group Columns
+                </div>}
+                {rowGroups.length > 0 && <>
+                <div ref={columnGroupPickerRef} className="relative">
+                  <div
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => handleGroupDrop(event, "columns")}
+                    className={`flex h-9 items-center rounded-md border bg-white ${columnGroupPickerOpen ? "border-primary ring-1 ring-primary/20" : "border-slate-300"}`}
+                  >
                     <Search className="ml-2.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <input
                     value={columnGroupSearch}
@@ -625,13 +1202,20 @@ export default function NewReportPage() {
                     onChange={(event) => setColumnGroupSearch(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Escape") setColumnGroupPickerOpen(false);
-                      if (event.key === "Enter" && visibleColumnGroupFields.length > 0) {
+                      if (event.key === "ArrowDown") {
                         event.preventDefault();
-                        addColumnGroup(visibleColumnGroupFields[0].key);
+                        setColumnGroupHighlight((current) => Math.min(current + 1, Math.max(visibleColumnGroupFields.length - 1, 0)));
+                      }
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        setColumnGroupHighlight((current) => Math.max(current - 1, 0));
+                      }
+                      if (event.key === "Enter" && visibleColumnGroupFields[columnGroupHighlight]) {
+                        event.preventDefault();
+                        addColumnGroup(visibleColumnGroupFields[columnGroupHighlight].key);
                         setColumnGroupSearch("");
                       }
                     }}
-                    onBlur={() => window.setTimeout(() => setColumnGroupPickerOpen(false), 150)}
                     placeholder="Add group..."
                     aria-label="Search column group fields"
                     className="h-8 min-w-0 flex-1 bg-transparent px-2 text-xs outline-none"
@@ -639,150 +1223,161 @@ export default function NewReportPage() {
                   </div>
                 </div>
                 {columnGroupPickerOpen && (
-                  <div className="absolute z-50 mt-1 max-h-56 w-[calc(100%-1.5rem)] overflow-y-auto rounded-md border bg-white p-1 shadow-lg">
+                  <div data-group-picker="columns" className="absolute z-50 mt-1 max-h-56 w-[calc(100%-1.5rem)] overflow-y-auto rounded-md border bg-white p-1 shadow-lg">
                     {!columnGroupSearch && <div className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Available Fields</div>}
                     {visibleColumnGroupFields.length === 0 ? <div className="px-2 py-2 text-xs text-muted-foreground">No matching fields</div> : visibleColumnGroupFields.map((field) => (
-                      <button key={field.key} type="button" onMouseDown={(event) => { event.preventDefault(); addColumnGroup(field.key); setColumnGroupSearch(""); setColumnGroupPickerOpen(true); }} className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs hover:bg-primary/10"><span>{field.label}</span><span className="text-[10px] text-slate-400">{field.key}</span></button>
+                      <button key={field.key} type="button" draggable onDragStart={(event) => { event.dataTransfer.setData("text/plain", field.key); event.dataTransfer.setData("group-axis", "fields"); }} onMouseDown={(event) => { event.preventDefault(); addColumnGroup(field.key); setColumnGroupSearch(""); }} className={`flex w-full items-center rounded px-2 py-1.5 text-left text-xs ${visibleColumnGroupFields[columnGroupHighlight]?.key === field.key ? "bg-primary/10" : "hover:bg-primary/10"}`}><span>{field.label}</span></button>
                     ))}
                   </div>
                 )}
-                {columnGroups.map((field) => (
-                  <div key={field} className="mb-1 flex items-center justify-between rounded-md bg-primary/5 px-2 py-1 text-xs text-primary">
-                    <span>{fieldLabel(field)}</span>
+                {columnGroups.map((field, index) => (
+                  <div
+                    key={field}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", field);
+                      event.dataTransfer.setData("group-axis", "columns");
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const draggedField = event.dataTransfer.getData("text/plain");
+                      const from = event.dataTransfer.getData("group-axis") as "rows" | "columns";
+                      if (draggedField && from === "columns") reorderGroup(draggedField, "columns", index);
+                      if (draggedField && from === "rows") moveGroupBetweenAxes(draggedField, from, "columns");
+                    }}
+                    className="group mb-2 flex min-h-10 items-center justify-between rounded-xl border border-transparent bg-slate-100 px-3 py-2 text-sm text-[#5c211d] transition-colors hover:bg-slate-200"
+                  >
+                    <span className="min-w-0 truncate">{fieldLabel(field)}</span>
                     <button type="button" onClick={() => removeColumnGroup(field)} aria-label={`Remove ${fieldLabel(field)} column group`}>
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
+                </>}
               </section>
-              <section className="mb-4 border-t pt-4">
-                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <section className="mb-4 border-t border-slate-300 pt-7">
+                <div className="mb-3 flex items-center justify-between text-lg font-semibold text-slate-500">
                   <span>Columns ({selectedFields.length})</span>
                   <button
                     className="text-primary"
-                    onClick={() => setSelectedFields([])}
+                    onClick={clearSelectedFields}
                   >
                     Clear
                   </button>
                 </div>
-                <div className="relative mb-2">
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    value={fieldSearch}
-                    onChange={(event) => setFieldSearch(event.target.value)}
-                    placeholder="Add column..."
-                    aria-label="Search columns"
-                    className="h-8 w-full rounded border bg-white pl-8 pr-2 text-xs outline-none focus:border-primary"
-                  />
-                </div>
-                {selectedFields.map((key) => (
-                  <div
-                    key={key}
-                    className="mb-1 flex items-center justify-between rounded-md bg-primary/5 px-2 py-1.5 text-sm text-primary"
-                  >
-                    <span>{fieldLabel(key)}</span>
-                    <button
-                      type="button"
-                      onClick={() => toggleField(key)}
-                      aria-label={`Remove ${fieldLabel(key)}`}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                <div ref={columnPickerRef} className="relative">
+                  <div className={`flex h-9 items-center rounded-md border bg-white ${columnPickerOpen ? "border-primary ring-1 ring-primary/20" : "border-slate-300"}`}>
+                    <Search className="ml-2.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <input
+                      value={fieldSearch}
+                      onFocus={() => setColumnPickerOpen(true)}
+                      onChange={(event) => setFieldSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") setColumnPickerOpen(false);
+                      }}
+                      placeholder="Add column..."
+                      aria-label="Search columns"
+                      className="h-8 min-w-0 flex-1 bg-transparent px-2 text-xs outline-none"
+                    />
                   </div>
-                ))}
-                {visibleFields.filter((field) => !selectedFields.includes(field.key)).length > 0 && (
-                  <div className="mt-1 max-h-32 overflow-y-auto rounded-md border bg-white p-1">
-                    {visibleFields.filter((field) => !selectedFields.includes(field.key)).map((field) => (
+                  {columnPickerOpen && (
+                  <div data-column-picker="columns" className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-white p-1 shadow-lg">
+                    {!fieldSearch && <div className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Available Fields</div>}
+                    {visibleFields.filter((field) => !selectedFields.includes(field.key)).length === 0 ? <div className="px-2 py-2 text-xs text-muted-foreground">No matching fields</div> : visibleFields.filter((field) => !selectedFields.includes(field.key)).map((field) => (
                       <button
                         key={field.key}
                         type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData("text/plain", field.key);
+                          event.dataTransfer.setData("group-axis", "fields");
+                        }}
                         onClick={() => {
                           toggleField(field.key);
                           setFieldSearch("");
+                          setColumnPickerOpen(false);
                         }}
                         className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs hover:bg-primary/10"
                       >
                         <span>{field.label}</span>
-                        <span className="text-[10px] uppercase text-muted-foreground">{field.type}</span>
                       </button>
                     ))}
                   </div>
-                )}
+                  )}
+                </div>
+                {selectedFields.map((key) => (
+                  <div key={key} className="mb-2 rounded-xl border border-transparent bg-slate-100 px-3 py-2 text-sm text-[#5c211d]">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{columnLabel(key)}</span>
+                      <button type="button" onClick={() => toggleField(key)} aria-label={`Remove ${fieldLabel(key)}`}><X className="h-3.5 w-3.5" /></button>
+                    </div>
+                  </div>
+                ))}
                 {selectedFields.length === 0 && !fieldSearch && (
                   <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
                     Add columns from the search above.
                   </p>
                 )}
               </section>
-              <section className="mb-4">
-                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <span>Summary Formulas</span>
-                  <button
-                    className="text-primary"
-                    onClick={() => setFormulaOpen(true)}
-                  >
-                    + Create Formula
-                  </button>
-                </div>
-                {formulaName && (
-                  <div className="rounded-md bg-slate-100 px-2 py-1 text-xs">
-                    {formulaName}: {formulaExpression}
-                  </div>
-                )}
-              </section>
-              <section>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Available Fields ({fields.length})
-                </div>
-                {visibleFields.map((field) => (
-                  <button
-                    key={field.key}
-                    type="button"
-                    onClick={() => toggleField(field.key)}
-                    className={`mb-1 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm ${selectedFields.includes(field.key) ? "bg-primary/10 font-medium text-primary" : "hover:bg-slate-100"}`}
-                  >
-                    <span>{field.label}</span>
-                    <span className="text-[10px] uppercase text-muted-foreground">
-                      {field.type}
-                    </span>
-                  </button>
-                ))}
-              </section>
             </div>
           ) : (
-            <div className="max-h-[calc(100vh-180px)] overflow-y-auto p-3">
-              <div className="mb-3 flex items-center justify-between">
+            <div className="max-h-[calc(100vh-180px)] overflow-y-auto p-2">
+              <div className="relative mb-4 flex items-center justify-between px-1">
                 <div>
-                  <h3 className="font-semibold">Filters</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {filterSummary}
-                  </p>
+                  <h3 className="text-base font-semibold text-slate-500">Filters</h3>
+                  <p className="text-xs text-muted-foreground">{filterSummary}</p>
                 </div>
-                <div className="flex gap-1">
-                  <select
-                    value={filterFieldPicker}
-                    onChange={(event) => {
-                      setFilterFieldPicker(event.target.value);
-                      if (event.target.value) addFilter(event.target.value);
-                    }}
-                    className="h-9 max-w-36 rounded border bg-white px-2 text-xs"
-                  >
-                    <option value="">Add filter...</option>
-                    {fields.map((field) => (
-                      <option key={field.key} value={field.key}>
-                        {field.label}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setFilterLogicOpen(true)}
-                  >
-                    Logic
-                  </Button>
-                </div>
+                <button type="button" onClick={() => setFilterActionsOpen((current) => !current)} aria-label="Filter actions" className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-slate-500 text-[#b52d2d] hover:bg-slate-100">
+                  <ChevronDown className={`h-4 w-4 transition-transform ${filterActionsOpen ? "rotate-180" : ""}`} />
+                </button>
+                {filterActionsOpen && <div className="absolute right-0 top-11 z-50 w-52 rounded-lg border bg-white p-1 shadow-lg">
+                  <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" onClick={() => { setFilterActionsOpen(false); setFilterLogicOpen(true); }}>Add Filter Logic</button>
+                  <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" onClick={() => { setFilterActionsOpen(false); setRowLimitEditorOpen(true); }}>Add Row Limit</button>
+                </div>}
               </div>
+              {rowLimitEditorOpen && (
+                <label className="mb-3 block rounded-lg border bg-slate-50 p-2 text-xs font-medium text-muted-foreground">
+                  Row Limit
+                  <input type="number" min={1} max={10000} value={rowLimit} onChange={(event) => setRowLimit(Math.max(1, Math.min(10000, Number(event.target.value) || 1)))} className="mt-1 h-9 w-full rounded border bg-white px-2 text-sm text-slate-700" aria-label="Row limit" />
+                </label>
+              )}
+              <div ref={filterFieldPickerRef} className="relative mb-3" onMouseLeave={() => setFilterFieldPickerOpen(false)}>
+                <div className={`flex h-11 items-center rounded-xl border-2 bg-white ${filterFieldPickerOpen ? "border-primary ring-1 ring-primary/20" : "border-slate-300"}`}>
+                  <Search className="ml-3 h-4 w-4 text-muted-foreground" />
+                  <input
+                    value={filterFieldPicker}
+                    onFocus={() => setFilterFieldPickerOpen(true)}
+                    onChange={(event) => { setFilterFieldPicker(event.target.value); setFilterFieldPickerOpen(true); }}
+                    onKeyDown={(event) => { if (event.key === "Escape") setFilterFieldPickerOpen(false); }}
+                    placeholder="Add filter..."
+                    aria-label="Add filter"
+                    className="h-9 min-w-0 flex-1 bg-transparent px-2 text-base text-slate-600 outline-none"
+                  />
+                </div>
+                {filterFieldPickerOpen && (
+                  <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-lg">
+                    {fields.filter((field) => `${field.label} ${field.key}`.toLowerCase().includes(filterFieldPicker.toLowerCase())).map((field) => (
+                      <button
+                        key={field.key}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          addFilter(field.key);
+                          setFilterFieldPicker("");
+                          setFilterFieldPickerOpen(false);
+                        }}
+                        className="flex w-full items-center rounded px-3 py-2 text-left text-sm hover:bg-primary/10"
+                      >
+                        {field.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <label className="mb-3 block text-xs font-medium text-muted-foreground">Advanced Filter Logic
+                <input value={filterExpression} onChange={(event) => setFilterExpression(event.target.value)} placeholder="Example: (1 AND 2) OR (3 AND 4)" className="mt-1 h-9 w-full rounded border bg-white px-2 text-xs outline-none focus:border-primary" />
+              </label>
               {filters.length === 0 && (
                 <p className="rounded-md border border-dashed bg-slate-50 p-3 text-xs text-muted-foreground">
                   No filters. All records will be included.
@@ -791,10 +1386,10 @@ export default function NewReportPage() {
               {filters.map((filter, index) => (
                 <div
                   key={index}
-                  className="mb-2 rounded-md border bg-white p-2 shadow-sm"
+                  className="mb-2 rounded-xl border-2 border-slate-300 bg-white p-2.5 shadow-sm"
                 >
                   <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-muted-foreground">
-                    <span className="truncate">{fieldLabel(filter.field)}</span>
+                    <span className="truncate text-sm font-semibold text-slate-500">{fieldLabel(filter.field)}</span>
                     <button
                       type="button"
                       onClick={() =>
@@ -807,7 +1402,7 @@ export default function NewReportPage() {
                       <Trash2 className="h-4 w-4 text-red-500" />
                     </button>
                   </div>
-                  <div className="mt-1 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1.5">
+                  <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1.5">
                     <select
                       value={filter.field}
                       aria-label={`Filter ${index + 1} field`}
@@ -820,7 +1415,7 @@ export default function NewReportPage() {
                           ),
                         )
                       }
-                      className="h-8 min-w-0 rounded border bg-white px-2 text-xs"
+                      className="h-9 min-w-0 rounded border bg-white px-2 text-sm"
                     >
                       {fields.map((field) => (
                         <option key={field.key} value={field.key}>
@@ -840,7 +1435,7 @@ export default function NewReportPage() {
                           ),
                         )
                       }
-                      className="h-8 min-w-0 rounded border bg-white px-2 text-xs"
+                      className="h-9 min-w-0 rounded border bg-white px-2 text-sm"
                     >
                       {fieldType(filter.field).includes("date") && (
                         <optgroup label="Relative dates">
@@ -848,15 +1443,19 @@ export default function NewReportPage() {
                         </optgroup>
                       )}
                       <optgroup label="Comparison">
-                        {operators.map((operator) => <option key={operator}>{operator}</option>)}
+                        {getAvailableOperators(fieldType(filter.field)).map((operator) => <option key={operator} value={operator}>{operator}</option>)}
                       </optgroup>
                     </select>
                   </div>
-                  {relativeDateOperators.some((operator) => operator.value === filter.operator) ? (
+                  {filter.operator === "isBlank" || filter.operator === "isNotBlank" ? (
+                    <p className="mt-1.5 rounded border bg-slate-50 px-2 py-1.5 text-sm text-muted-foreground">Checks whether this field has a value.</p>
+                  ) : filter.operator === "customRange" ? (
+                    <div className="mt-1.5 grid grid-cols-2 gap-1.5"><input type="date" value={typeof filter.value === "object" ? filter.value.start : ""} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: { start: event.target.value, end: typeof item.value === "object" ? item.value.end : "" } } : item))} className="h-8 rounded border px-2 text-xs" /><input type="date" value={typeof filter.value === "object" ? filter.value.end : ""} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: { start: typeof item.value === "object" ? item.value.start : "", end: event.target.value } } : item))} className="h-8 rounded border px-2 text-xs" /></div>
+                  ) : relativeDateOperators.some((operator) => operator.value === filter.operator) ? (
                     <p className="mt-1.5 rounded border bg-slate-50 px-2 py-1.5 text-xs text-muted-foreground">Uses the current calendar range.</p>
                   ) : (
                     <input
-                      value={filter.value}
+                      value={typeof filter.value === "object" ? "" : filter.value}
                       onChange={(event) =>
                         setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))
                       }
@@ -866,97 +1465,26 @@ export default function NewReportPage() {
                   )}
                 </div>
               ))}
-              <section className="mt-6 border-t pt-4">
-                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <span>Cross Filters</span>
-                  {crossFilterObject && (
-                    <button
-                      type="button"
-                      className="text-primary"
-                      onClick={() => setCrossFilterObject("")}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <select
-                  value={crossFilterObject}
-                  onChange={(event) => setCrossFilterObject(event.target.value)}
-                  className="h-9 w-full rounded border bg-white px-2 text-sm"
-                >
-                  <option value="">New Cross Filter</option>
-                  {objects
-                    .filter((item) => crossFilterRelations[selectedObject]?.includes(item.name))
-                    .map((item) => (
-                      <option key={item.name} value={item.name}>
-                        {item.label}
-                      </option>
-                    ))}
-                </select>
-                {crossFilterObject && (
-                  <div className="mt-2 space-y-2 rounded-md border bg-slate-50 p-2">
-                    <select
-                      value={crossFilterMode}
-                      onChange={(event) => setCrossFilterMode(event.target.value as "with" | "without")}
-                      className="h-8 w-full rounded border bg-white px-2 text-xs"
-                      aria-label="Cross filter mode"
-                    >
-                      <option value="with">With related records</option>
-                      <option value="without">Without related records</option>
-                    </select>
-                    <p className="text-xs text-muted-foreground">
-                    {crossFilterMode === "with" ? "Include" : "Exclude"} records related to{" "}
-                    {
-                      objects.find((item) => item.name === crossFilterObject)
-                        ?.label
-                    }
-                    .
-                    </p>
-                  </div>
-                )}
-              </section>
             </div>
           )}
         </aside>
-        <main className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-2">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-medium">Preview</span>
-              {result && (
-                <Badge variant="secondary">{result.totalRows} records</Badge>
-              )}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-8 items-center justify-between border-b bg-slate-100 px-2 text-xs text-slate-700">
+            <div className="flex min-w-0 items-center gap-2">
+              {result && !hasRun && result.totalRows > 20 && <><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500 text-[10px] font-bold text-white">✓</span><span className="truncate font-semibold">Previewing a limited number of records. Run the report to see everything.</span></>}
             </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value)}
-                className="h-8 rounded border bg-white px-2 text-xs"
-              >
-                <option value="">Sort by...</option>
-                {fields.map((field) => (
-                  <option key={field.key} value={field.key}>
-                    {field.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={sortOrder}
-                onChange={(event) =>
-                  setSortOrder(event.target.value as "asc" | "desc")
-                }
-                className="h-8 rounded border bg-white px-2 text-xs"
-              >
-                <option value="desc">Descending</option>
-                <option value="asc">Ascending</option>
-              </select>
-            </div>
+            <label className="ml-3 flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap">
+              <span>Update Preview Automatically</span>
+              <input type="checkbox" checked={autoPreview} onChange={(event) => setAutoPreview(event.target.checked)} className="peer sr-only" aria-label="Update Preview Automatically" />
+              <span className="relative h-5 w-9 rounded-full bg-slate-400 transition-colors peer-checked:bg-red-500 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+            </label>
           </div>
           {error && (
             <div className="m-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
             </div>
           )}
-          <div className="min-h-[360px] overflow-auto bg-white p-4">
+          <div className="min-h-0 flex-1 overflow-auto bg-white p-0">
             {!result ? (
               <div className="flex min-h-[330px] flex-col items-center justify-center text-center text-muted-foreground">
                 <h2 className="text-lg font-semibold text-slate-700">
@@ -970,7 +1498,7 @@ export default function NewReportPage() {
               <div className="flex min-h-[330px] items-center justify-center text-lg text-muted-foreground">
                 No results found
               </div>
-            ) : rowGroups.length > 0 && result.groups && !columnGroups.length ? (
+            ) : rowGroups.length > 0 && !columnGroups.length ? (
               <section>
                 <div className="mb-2 flex items-center justify-between">
                   <div>
@@ -980,30 +1508,18 @@ export default function NewReportPage() {
                   <Badge variant="secondary">{result.totalRows} records</Badge>
                 </div>
                 <div className="overflow-x-auto rounded-sm border border-slate-300">
-                  <table className="w-full min-w-[700px] border-collapse text-left text-sm">
+                  <table className="w-full min-w-[900px] border-collapse text-left text-sm">
                     <thead><tr className="border-b border-slate-300 bg-slate-50">
                       {rowGroups.map((field) => <th key={field} className="border-r border-slate-300 px-3 py-2 font-semibold text-primary">{fieldLabel(field)}</th>)}
-                      {Object.keys(result.groups[0]?.summary || {}).map((label) => <th key={label} className="border-r border-slate-300 px-3 py-2 text-center font-semibold text-primary">{label}</th>)}
+                      {showDetailRows && result.columns.map((column) => <th key={column} className="border-r border-slate-300 px-3 py-2 font-semibold">{fieldLabel(column)}</th>)}
+                      {!showDetailRows && showRowCounts && <th className="border-r border-slate-300 px-3 py-2 text-center font-semibold">Record Count</th>}
                     </tr></thead>
                     <tbody>
-                      {result.groups.map((group, index) => <tr key={`${group.group}-${index}`} className="border-b border-slate-200 hover:bg-slate-50">
-                        {rowGroups.map((field) => <td key={field} className="border-r border-slate-200 px-3 py-2 font-medium text-primary">{formatGroupedValue(field, group.groupValues?.[field] || "Unknown")}</td>)}
-                        {Object.keys(group.summary || {}).map((label) => <td key={label} className="border-r border-slate-200 px-3 py-2 text-center">{group.summary?.[label] ?? 0}</td>)}
-                      </tr>)}
-                      {showGrandTotal && <tr className="bg-slate-100 font-semibold">
-                        {rowGroups.map((field, index) => <td key={field} className="border-r border-slate-300 px-3 py-2">{index === 0 ? "Grand Total" : ""}</td>)}
-                        {Object.keys(result.summary || {}).map((label) => <td key={label} className="border-r border-slate-300 px-3 py-2 text-center">{result.summary?.[label] ?? 0}</td>)}
-                      </tr>}
+                      {showDetailRows ? renderTabularGroupTree(groupTree) : renderSummaryGroupRows(groupTree)}
+                      {showGrandTotal && <tr className="bg-slate-100 font-semibold"><td colSpan={rowGroups.length + (showDetailRows ? result.columns.length : showRowCounts ? 1 : 0)} className="px-3 py-2">Grand Total: {result.totalRows} records</td></tr>}
                     </tbody>
                   </table>
                 </div>
-                {showDetailRows && <section className="mt-5 border-t border-slate-200 pt-4">
-                  <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-semibold text-slate-700">Details</h3><Badge variant="secondary">{hasRun ? result.totalRows : Math.min(result.totalRows, 10)} Rows</Badge></div>
-                  <div className="overflow-x-auto rounded-sm border border-slate-300"><table className="w-full min-w-[900px] border-collapse text-left text-sm">
-                    <thead><tr className="border-b border-slate-300 bg-slate-50">{result.columns.map((column) => <th key={column} className="border-r border-slate-300 px-3 py-2 font-semibold">{fieldLabel(column)}</th>)}</tr></thead>
-                    <tbody>{result.rows.slice(0, hasRun ? result.rows.length : 10).map((row, index) => <tr key={index} className="border-b border-slate-200 hover:bg-slate-50">{result.columns.map((column) => <td key={column} className="border-r border-slate-200 px-3 py-2">{row[column] == null ? "-" : String(row[column])}</td>)}</tr>)}</tbody>
-                  </table></div>
-                </section>}
               </section>
             ) : result.pivot ? (
               <div className="space-y-4">
@@ -1020,27 +1536,41 @@ export default function NewReportPage() {
                   <div className="overflow-x-auto rounded border">
                     <table className="w-full min-w-[650px] border-collapse text-left text-sm">
                       <thead>
-                        <tr className="border-b bg-slate-50">
+                        {columnGroups.length > 1 ? <>
+                          <tr className="border-b bg-slate-50">
+                            <th rowSpan={2} className="whitespace-nowrap px-3 py-2 font-semibold">{rowGroups.map(fieldLabel).join(" / ") || "Group"}</th>
+                            {pivotColumnHeaders.reduce<{ label: string; span: number }[]>((headers, column) => {
+                              const existing = headers.find((header) => header.label === column.primary);
+                              if (existing) existing.span += 1;
+                              else headers.push({ label: column.primary, span: 1 });
+                              return headers;
+                            }, []).map((header) => <th key={header.label} colSpan={header.span} className="whitespace-nowrap border-l px-3 py-2 text-center font-semibold">{header.label}</th>)}
+                            {showSubtotals && <th rowSpan={2} className="whitespace-nowrap px-3 py-2 text-center font-semibold">Total</th>}
+                          </tr>
+                          <tr className="border-b bg-slate-50/80">{pivotColumnHeaders.map((column) => <th key={column.label} className="whitespace-nowrap border-l px-3 py-1.5 text-center text-xs font-medium text-muted-foreground">{column.secondary}</th>)}</tr>
+                        </> : <tr className="border-b bg-slate-50">
                           <th className="whitespace-nowrap px-3 py-2 font-semibold">{rowGroups.map(fieldLabel).join(" / ") || "Group"}</th>
                           {result.pivot.columns.map((column) => <th key={column} className="whitespace-nowrap px-3 py-2 text-center font-semibold">{column}</th>)}
-                          {(result.pivot.aggregateLabel?.startsWith("Record Count") || result.pivot.aggregateLabel?.startsWith("Sum")) && <th className="whitespace-nowrap px-3 py-2 text-center font-semibold">Total</th>}
-                        </tr>
+                          {showSubtotals && <th className="whitespace-nowrap px-3 py-2 text-center font-semibold">Total</th>}
+                        </tr>}
                       </thead>
                       <tbody>
-                        {result.pivot.rows.map((row) => {
+                        {result.pivot.rows.map((row, rowIndex) => {
                           const total = result.pivot!.columns.reduce((sum, column) => sum + Number(row.values[column] || 0), 0);
-                          return <tr key={row.group} className="border-b hover:bg-slate-50"><td className="px-3 py-2 font-medium text-primary">{rowGroups.map((field) => formatGroupedValue(field, row.groupValues?.[field] || "Unknown")).join(" / ") || row.group}</td>{result.pivot!.columns.map((column) => <td key={column} className="px-3 py-2 text-center">{row.values[column] || 0}</td>)}{(result.pivot!.aggregateLabel?.startsWith("Record Count") || result.pivot!.aggregateLabel?.startsWith("Sum")) && <td className="px-3 py-2 text-center font-semibold">{total}</td>}</tr>;
+                          const rowKey = `pivot-${row.group}-${rowIndex}`;
+                          const collapsed = Boolean(collapsedGroups[rowKey]);
+                          return <React.Fragment key={rowKey}><tr className="border-b hover:bg-slate-50"><td className="px-3 py-2 font-medium text-primary"><button type="button" onClick={() => setCollapsedGroups((current) => ({ ...current, [rowKey]: !collapsed }))} className="mr-1 text-[10px]" aria-label={`${collapsed ? "Expand" : "Collapse"} ${row.group}`}>{collapsed ? "▶" : "▼"}</button>{rowGroups.map((field) => row.groupValues?.[field] || "(Blank)").join(" / ") || row.group}{showRowCounts && <span className="ml-1 font-normal text-muted-foreground">({total})</span>}</td>{result.pivot!.columns.map((column) => <td key={column} className="px-3 py-2 text-center">{row.values[column] || 0}</td>)}{showSubtotals && <td className="px-3 py-2 text-center font-semibold">{total}</td>}</tr></React.Fragment>;
                         })}
-                        {(result.pivot.aggregateLabel?.startsWith("Record Count") || result.pivot.aggregateLabel?.startsWith("Sum")) && <tr className="bg-slate-50 font-semibold">
+                        {showGrandTotal && <tr className="bg-slate-50 font-semibold">
                           <td className="px-3 py-2">Total</td>
                           {result.pivot.columns.map((column) => <td key={column} className="px-3 py-2 text-center">{result.pivot!.rows.reduce((sum, row) => sum + Number(row.values[column] || 0), 0)}</td>)}
-                          <td className="px-3 py-2 text-center">{result.pivot.rows.reduce((sum, row) => sum + Object.values(row.values).reduce((rowSum, value) => rowSum + Number(value || 0), 0), 0)}</td>
+                          {showSubtotals && <td className="px-3 py-2 text-center">{result.pivot.rows.reduce((sum, row) => sum + Object.values(row.values).reduce((rowSum, value) => rowSum + Number(value || 0), 0), 0)}</td>}
                         </tr>}
                       </tbody>
                     </table>
                   </div>
                 </section>
-                <section>
+                {showDetailRows && <section>
                   <div className="mb-2 flex items-center gap-2 border-t pt-3">
                     <h3 className="text-sm font-semibold text-slate-700">Details</h3>
                     <Badge variant="secondary">{result.totalRows} Rows</Badge>
@@ -1053,11 +1583,11 @@ export default function NewReportPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {result.rows.slice(0, hasRun ? result.rows.length : 10).map((row, index) => <tr key={index} className="border-b hover:bg-slate-50">{result.columns.map((column) => <td key={column} className="whitespace-nowrap px-3 py-2">{row[column] == null ? "-" : String(row[column])}</td>)}</tr>)}
+                        {result.rows.slice(0, hasRun ? result.rows.length : 20).map((row, index) => <tr key={index} className="border-b hover:bg-slate-50">{result.columns.map((column) => <td key={column} className="whitespace-nowrap px-3 py-2">{row[column] == null ? "-" : String(row[column])}</td>)}</tr>)}
                       </tbody>
                     </table>
                   </div>
-                </section>
+                </section>}
               </div>
             ) : (
               <table className="w-full min-w-[650px] border-collapse text-left text-sm">
@@ -1081,7 +1611,7 @@ export default function NewReportPage() {
                             {rowGroups.map((field) => formatGroupedValue(field, group.groupValues?.[field] || "Unknown")).join(" / ") || `${fieldLabel(groupBy)}: ${group.group}`} <span className="font-normal text-muted-foreground">({group.count} records)</span>
                           </td>
                         </tr>,
-                        ...(showDetailRows ? (group.rows || []).slice(0, hasRun ? group.rows?.length : 10) : [null]).map((row, rowIndex) => (
+                        ...(showDetailRows ? (group.rows || []).slice(0, hasRun ? group.rows?.length : 20) : [null]).map((row, rowIndex) => (
                           <tr key={`group-${groupIndex}-row-${rowIndex}`} className="border-b hover:bg-slate-50">
                             {result.columns.map((column) => (
                               <td key={column} className="whitespace-nowrap px-3 py-2">
@@ -1091,7 +1621,7 @@ export default function NewReportPage() {
                           </tr>
                         )),
                       ])
-                    : result.rows.slice(0, hasRun ? result.rows.length : 10).map((row, index) => (
+                    : result.rows.slice(0, hasRun ? result.rows.length : 20).map((row, index) => (
                         <tr key={index} className="border-b hover:bg-slate-50">
                           {result.columns.map((column) => (
                             <td key={column} className="whitespace-nowrap px-3 py-2">
@@ -1103,18 +1633,7 @@ export default function NewReportPage() {
                 </tbody>
               </table>
             )}
-            {result && !hasRun && result.totalRows > 10 && <p className="mt-3 text-center text-xs text-muted-foreground">Previewing 10 of {result.totalRows} records. Click Run to show all records.</p>}
           </div>
-          {result?.summary && (
-            <div className="grid gap-3 border-t bg-slate-50 p-4 sm:grid-cols-3">
-              {Object.entries(result.summary).map(([label, value]) => (
-                <div key={label} className="rounded-md border bg-white p-3">
-                  <p className="text-xs text-muted-foreground">{label}</p>
-                  <p className="mt-1 text-xl font-semibold">{value}</p>
-                </div>
-              ))}
-            </div>
-          )}
           {result?.columnGroups && result.columnGroups.length > 0 && (
             <div className="flex flex-wrap gap-2 border-t bg-slate-50 p-4">
               <span className="w-full text-xs font-semibold uppercase tracking-wide text-muted-foreground">Group Columns</span>
@@ -1129,90 +1648,13 @@ export default function NewReportPage() {
           <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Detail Rows<input type="checkbox" checked={showDetailRows} onChange={(event) => setShowDetailRows(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
           <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Subtotals<input type="checkbox" checked={showSubtotals} onChange={(event) => setShowSubtotals(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
           <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Grand Total<input type="checkbox" checked={showGrandTotal} onChange={(event) => setShowGrandTotal(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
-          <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Stacked Summaries<input type="checkbox" checked={showStackedSummaries} onChange={(event) => setShowStackedSummaries(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
         </div>
         <span className="hidden lg:inline">
           {selectedFields.length} columns · {validFilters.length} filters ·{" "}
           {groupBy ? `Grouped by ${fieldLabel(groupBy)}` : "No grouping"}
           {groupColumn ? ` · Columns: ${fieldLabel(groupColumn)}` : ""}
         </span>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={addAggregate}>
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Summary
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => addFilter()}>
-            <Filter className="mr-1 h-3.5 w-3.5" />
-            Filter
-          </Button>
-        </div>
       </footer>
-      {aggregates.length > 0 && (
-        <div className="fixed bottom-12 left-1/2 z-10 hidden max-w-2xl -translate-x-1/2 items-center gap-2 rounded-lg border bg-white px-3 py-2 shadow-lg md:flex">
-          {aggregates.map((aggregate, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-2 rounded bg-slate-100 px-2 py-1 text-xs"
-            >
-              <select
-                value={aggregate.function}
-                onChange={(event) =>
-                  setAggregates((current) =>
-                    current.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? {
-                            ...item,
-                            function: event.target
-                              .value as Aggregate["function"],
-                          }
-                        : item,
-                    ),
-                  )
-                }
-                className="bg-transparent font-medium"
-              >
-                <option value="count">Record Count</option>
-                <option value="sum">Sum</option>
-                <option value="avg">Average</option>
-                <option value="min">Minimum</option>
-                <option value="max">Maximum</option>
-              </select>
-              {aggregate.function !== "count" && (
-                <select
-                  value={aggregate.field}
-                  onChange={(event) =>
-                    setAggregates((current) =>
-                      current.map((item, itemIndex) =>
-                        itemIndex === index
-                          ? { ...item, field: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                  className="max-w-32 bg-transparent"
-                >
-                  <option value="">Field</option>
-                  {numericFields.map((field) => (
-                    <option key={field.key} value={field.key}>
-                      {field.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <button
-                onClick={() =>
-                  setAggregates((current) =>
-                    current.filter((_, itemIndex) => itemIndex !== index),
-                  )
-                }
-                aria-label="Remove summary"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
       {filterLogicOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-lg bg-white shadow-2xl">
@@ -1244,99 +1686,198 @@ export default function NewReportPage() {
           </div>
         </div>
       )}
-      {formulaOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-lg bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <h2 className="font-semibold">
-                Edit Summary-Level Formula Column
-              </h2>
-              <button
-                onClick={() => setFormulaOpen(false)}
-                aria-label="Close formula dialog"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="grid gap-4 p-5 md:grid-cols-2">
-              <label className="text-sm font-medium">
-                Column Name
-                <input
-                  value={formulaName}
-                  onChange={(event) => setFormulaName(event.target.value)}
-                  className="mt-2 h-10 w-full rounded border px-3"
-                />
-              </label>
-              <label className="text-sm font-medium">
-                Description
-                <input className="mt-2 h-10 w-full rounded border px-3" />
-              </label>
-              <label className="text-sm font-medium md:col-span-2">
-                Formula
-                <textarea
-                  value={formulaExpression}
-                  onChange={(event) => setFormulaExpression(event.target.value)}
-                  placeholder="Type your formula here..."
-                  rows={5}
-                  className="mt-2 w-full rounded border px-3 py-2 font-mono text-sm"
-                />
-              </label>
-            </div>
-            <div className="flex justify-end gap-2 border-t bg-slate-50 px-5 py-4">
-              <Button variant="outline" onClick={() => setFormulaOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => setFormulaOpen(false)}>Apply</Button>
-            </div>
-          </div>
-        </div>
-      )}
       {saveOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <h2 className="text-xl font-semibold">Save Report</h2>
-              <button
-                onClick={() => setSaveOpen(false)}
-                aria-label="Close save dialog"
-              >
-                <X className="h-5 w-5" />
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4">
+          <div className="w-full max-w-5xl overflow-hidden rounded-[22px] border border-slate-200 bg-[#f4f4f4] shadow-[0_20px_45px_rgba(15,23,42,0.15)]">
+            <div className="flex items-center justify-center border-b border-slate-200 px-6 py-4">
+              <h2 className="text-4xl font-semibold tracking-tight text-slate-800">Save Report</h2>
             </div>
+
             <div className="space-y-5 p-6">
-              <label className="block text-sm font-medium">
-                Report Name
+              <label className="block text-[1.05rem] font-semibold text-slate-800">
+                <span className="text-red-600">*</span> Report Name
                 <input
                   value={reportName}
                   onChange={(event) => setReportName(event.target.value)}
-                  placeholder="Cancellation Reasons"
-                  className="mt-2 h-10 w-full rounded border px-3"
+                  placeholder="New Notes With leads Report"
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-lg text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </label>
-              <label className="block text-sm font-medium">
+
+              <label className="block text-[1.05rem] font-semibold text-slate-800">
+                Report Unique Name
+                <div className="relative mt-2">
+                  <input
+                    value={reportUniqueName}
+                    onChange={(event) => setReportUniqueName(event.target.value)}
+                    className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-lg text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+                  <span className="absolute right-3 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
+                    i
+                  </span>
+                </div>
+              </label>
+
+              <label className="block text-[1.05rem] font-semibold text-slate-800">
                 Report Description
                 <textarea
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                   rows={4}
-                  className="mt-2 w-full rounded border px-3 py-2"
+                  className="mt-2 h-20 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </label>
-              <label className="block text-sm font-medium">
-                Folder
-                <input
-                  placeholder="Select Folder"
-                  className="mt-2 h-10 w-full rounded border px-3"
-                />
-              </label>
+
+              <div className="block text-[1.05rem] font-semibold text-slate-800">
+                <span>Folder</span>
+                <div className="mt-2 flex gap-3">
+                  <input
+                    value={selectedFolderName}
+                    readOnly
+                    placeholder="Private Reports"
+                    className="h-12 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-lg text-slate-800 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFolderPicker(true)}
+                    className="h-12 min-w-[140px] rounded-xl border border-red-500 bg-white px-4 text-lg font-semibold text-red-600 transition hover:bg-red-50"
+                  >
+                    Select Folder
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex justify-end gap-2 border-t bg-slate-50 px-6 py-4">
-              <Button variant="outline" onClick={() => setSaveOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => void saveReport()} disabled={saving}>
-                {saving ? "Saving..." : "Save"}
-              </Button>
+
+            <div className="flex items-center justify-between border-t border-slate-200 bg-[#f4f4f4] px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowFolderPicker(true)}
+                className="h-12 min-w-[140px] rounded-xl border border-slate-300 bg-white px-4 text-lg font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                New Folder
+              </button>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSaveOpen(false)}
+                  className="h-12 min-w-[120px] rounded-xl border border-slate-300 bg-white px-4 text-lg font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveReport()}
+                  disabled={saving}
+                  className="h-12 min-w-[120px] rounded-xl bg-red-600 px-4 text-lg font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-60"
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFolderPicker && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-4xl overflow-hidden rounded-[22px] border border-slate-200 bg-[#f4f4f4] shadow-[0_25px_60px_rgba(15,23,42,0.2)]">
+            <div className="flex items-center justify-center border-b border-slate-200 px-6 py-5">
+              <h2 className="text-4xl font-semibold tracking-tight text-slate-800">Select Folder</h2>
+            </div>
+
+            <div className="px-6 py-4">
+              <div className="mb-4 rounded-xl border border-slate-300 bg-white p-3">
+                <div className="flex items-center gap-3">
+                  <Search className="h-4 w-4 text-slate-500" />
+                  <input
+                    value={folderPickerSearch}
+                    onChange={(event) => setFolderPickerSearch(event.target.value)}
+                    placeholder="Search folders..."
+                    className="w-full border-0 bg-transparent text-base text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid min-h-[420px] grid-cols-[260px_minmax(0,1fr)] overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="border-r border-slate-200 bg-slate-100/70 p-2">
+                  {[
+                    { key: "all", label: "All Folders" },
+                    { key: "createdByMe", label: "Created by Me" },
+                    { key: "sharedWithMe", label: "Shared with Me" },
+                    { key: "private", label: "Private Reports" },
+                    { key: "public", label: "Public Reports" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setFolderPickerSearch("")}
+                      className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-lg font-semibold transition ${tab.key === "all" ? "bg-white text-red-700 shadow-sm" : "text-slate-700 hover:bg-white/70"}`}
+                    >
+                      <span>{tab.label}</span>
+                      <span className="text-slate-400">›</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="bg-white p-0">
+                  {filteredPickerFolders.length === 0 ? (
+                    <div className="flex min-h-[360px] items-center justify-center text-base text-slate-500">
+                      No folders found
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-200">
+                      {filteredPickerFolders.map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedFolderId(folder.id);
+                            setFolderSearch(folder.name);
+                            setShowFolderPicker(false);
+                          }}
+                          className={`flex w-full items-center justify-between px-4 py-4 text-left transition hover:bg-slate-50 ${selectedFolderId === folder.id ? "bg-blue-50/60" : ""}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-5 w-5 items-center justify-center rounded-sm bg-slate-200 text-[10px] text-slate-600">
+                              <span>▣</span>
+                            </div>
+                            <span className="text-xl font-semibold text-red-700">{folder.name}</span>
+                          </div>
+                          <span className="text-slate-400">›</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-200 bg-[#f4f4f4] px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowFolderPicker(false)}
+                className="h-12 min-w-[140px] rounded-xl border border-slate-300 bg-white px-4 text-lg font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                New Folder
+              </button>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowFolderPicker(false)}
+                  className="h-12 min-w-[120px] rounded-xl border border-slate-300 bg-white px-4 text-lg font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFolderPicker(false)}
+                  className="h-12 min-w-[120px] rounded-xl bg-red-600 px-4 text-lg font-semibold text-white shadow-sm transition hover:bg-red-700"
+                >
+                  Select
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -24,7 +25,7 @@ import { activityRoutes as activityRouter } from './routes/activities';
 import { userRoutes as userRouter } from './routes/users';
 import { roleRoutes as roleRouter } from './routes/roles';
 import { profileRoutes as profileRouter } from './routes/profiles';
-import reportRouter, { reportFolderRouter } from './routes/reports';
+import reportRouter, { reportFolderRouter, reportMetadataRouter } from './routes/reports';
 import { dashboardRoutes as dashboardRouter } from './routes/dashboards';
 import { searchRoutes as searchRouter } from './routes/search';
 import { analyticsRoutes as analyticsRouter } from './routes/analytics';
@@ -47,7 +48,7 @@ import { effectivePermissionRoutes as effectivePermissionRouter } from './routes
 import { profilePermissionRoutes as profilePermissionRouter } from './routes/profilePermissions';
 import { companyRoutes as companyRouter } from './routes/companies';
 
-dotenv.config({ path: __dirname + '/../.env' });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -94,6 +95,7 @@ app.use('/api/users', userRouter);
 app.use('/api/roles', roleRouter);
 app.use('/api/profiles', profileRouter);
 app.use('/api/reports', reportRouter);
+app.use('/api/report-metadata', reportMetadataRouter);
 app.use('/api/report-folders', reportFolderRouter);
 app.use('/api/dashboards', dashboardRouter);
 app.use('/api/search', searchRouter);
