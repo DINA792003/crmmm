@@ -214,6 +214,7 @@ export interface ReportFilter {
 
 export interface RunReportInput {
   tenantId: string;
+  userId?: string;
   objectName: string;
   columns: string[];
   filters?: ReportFilter[];
@@ -223,6 +224,7 @@ export interface RunReportInput {
     mode: "with" | "without";
   };
   filterLogic?: "AND" | "OR";
+  showMe?: "all" | "mine";
   groupBy?: string;
   groupColumn?: string;
   rowGroups?: string[];
@@ -594,6 +596,8 @@ function buildWhere(
   filters: ReportFilter[],
   filterLogic: "AND" | "OR" = "AND",
   filterTree?: FilterTree,
+  showMe: "all" | "mine" = "all",
+  userId?: string,
 ) {
   const validFilters = filters.filter((filter) => {
     const field = objectConfig.fields[filter.field];
@@ -602,8 +606,8 @@ function buildWhere(
     }
 
     const valueOptional = ['isBlank', 'isNotBlank', 'customRange', ...relativeDateOperators];
-    if (!valueOptional.includes(filter.operator) && (filter.value === undefined || filter.value === null || filter.value === "")) {
-      return false;
+    if (valueOptional.includes(filter.operator)) {
+      return true;
     }
 
     if (field.type === "date") {
@@ -614,9 +618,36 @@ function buildWhere(
     return true;
   });
 
+  const systemConditions = showMe === "mine" && userId ? [{ ownerId: userId }] : [];
   if (validFilters.length === 0) {
-    return { tenantId };
+    return { AND: [{ tenantId }, ...systemConditions] };
   }
+
+  const buildFilterWhere = (filter: ReportFilter, field: ReportField): Record<string, unknown> => {
+    const isStringLike = field.type === "string" || field.type === "enum";
+    const isRequiredIdentifier = field.path === "id";
+    const isBlankValue = isStringLike && (filter.operator === "isBlank" || (filter.operator === "equals" && filter.value === ""));
+    const isNotBlankValue = isStringLike && (filter.operator === "isNotBlank" || (filter.operator === "notEquals" && filter.value === ""));
+    if (isRequiredIdentifier && isBlankValue) return buildNestedObject(field.path, { equals: "" });
+    if (isRequiredIdentifier && isNotBlankValue) return buildNestedObject(field.path, { not: "" });
+    if (isBlankValue) {
+      return {
+        OR: [
+          buildNestedObject(field.path, { equals: null }),
+          buildNestedObject(field.path, { equals: "" }),
+        ],
+      };
+    }
+    if (isNotBlankValue) {
+      return {
+        AND: [
+          buildNestedObject(field.path, { not: null }),
+          buildNestedObject(field.path, { not: "" }),
+        ],
+      };
+    }
+    return buildNestedObject(field.path, createCondition(field, filter.operator, filter.value));
+  };
 
   const buildTreeWhere = (node: FilterTree): Record<string, unknown> => {
     if ("filterIndex" in node) {
@@ -624,14 +655,14 @@ function buildWhere(
       if (!filter) throw new Error(`Filter expression references invalid filter ${node.filterIndex + 1}`);
       const field = objectConfig.fields[filter.field];
       if (!field) throw new Error(`Unknown report field: ${filter.field}`);
-      return buildNestedObject(field.path, createCondition(field, filter.operator, filter.value));
+      return buildFilterWhere(filter, field);
     }
     const conditions = node.conditions.map(buildTreeWhere);
     return node.type === "OR" ? { OR: conditions } : { AND: conditions };
   };
 
   if (filterTree) {
-    return { AND: [{ tenantId }, buildTreeWhere(filterTree)] };
+    return { AND: [{ tenantId }, ...systemConditions, buildTreeWhere(filterTree)] };
   }
 
   const filterConditions = validFilters.map((filter) => {
@@ -641,16 +672,14 @@ function buildWhere(
       throw new Error(`Unknown report field: ${filter.field}`);
     }
 
-    return buildNestedObject(
-      field.path,
-      createCondition(field, filter.operator, filter.value),
-    );
+    return buildFilterWhere(filter, field);
   });
 
   if (filterLogic === "OR") {
     return {
       AND: [
         { tenantId },
+        ...systemConditions,
         { OR: filterConditions },
       ],
     };
@@ -659,6 +688,7 @@ function buildWhere(
   return {
     AND: [
       { tenantId },
+      ...systemConditions,
       ...filterConditions,
     ],
   };
@@ -1252,6 +1282,9 @@ export async function runReport(input: RunReportInput) {
           input.tenantId,
           input.filters || [],
           input.filterLogic || "AND",
+          input.filterTree,
+          input.showMe || "all",
+          input.userId,
         ),
         input.objectName,
         input.crossFilter,

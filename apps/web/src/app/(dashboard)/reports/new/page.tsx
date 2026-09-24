@@ -191,6 +191,82 @@ const relativeDateOperators = [
   { value: "last90Days", label: "Last 90 Days" },
   { value: "customRange", label: "Custom Date Range" },
 ];
+const operatorLabels: Record<string, string> = {
+  equals: "equals",
+  notEquals: "not equal to",
+  contains: "contains",
+  notContains: "does not contain",
+  startsWith: "starts with",
+  endsWith: "ends with",
+  gt: "greater than",
+  gte: "greater or equal",
+  lt: "less than",
+  lte: "less or equal",
+  isBlank: "is blank",
+  isNotBlank: "is not blank",
+  in: "is one of",
+  notIn: "is not one of",
+};
+
+function validateFilterExpression(expression: string, filterCount: number): string | null {
+  if (!expression.trim()) return null;
+  const tokens = expression.match(/\(|\)|AND|OR|NOT|\d+/gi) || [];
+  const source = expression.replace(/\(|\)|AND|OR|NOT|\d+/gi, "").trim();
+  if (source) return "Filter logic contains an invalid expression.";
+  let position = 0;
+  const primary = (): boolean => {
+    const token = tokens[position++];
+    if (token === "(") {
+      if (!orExpression()) return false;
+      if (tokens[position++] !== ")") throw new Error("Invalid filter logic");
+      return true;
+    }
+    if (token?.toUpperCase() === "NOT") return primary();
+    const number = Number(token);
+    if (!Number.isInteger(number) || number < 1 || number > filterCount) throw new Error("Invalid filter logic");
+    return true;
+  };
+  const andExpression = (): boolean => {
+    if (!primary()) return false;
+    while (tokens[position]?.toUpperCase() === "AND") {
+      position += 1;
+      primary();
+    }
+    return true;
+  };
+  const orExpression = (): boolean => {
+    if (!andExpression()) return false;
+    while (tokens[position]?.toUpperCase() === "OR") {
+      position += 1;
+      andExpression();
+    }
+    return true;
+  };
+  try {
+    orExpression();
+    if (position !== tokens.length) throw new Error("Invalid filter logic");
+    return null;
+  } catch {
+    return "Invalid filter logic";
+  }
+}
+
+function relativeDateSummary(operator: string): string {
+  const today = new Date();
+  const format = (date: Date) => date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  if (operator === "today") return `Today (${format(today)})`;
+  if (operator === "thisMonth") return `This Month (${format(new Date(today.getFullYear(), today.getMonth(), 1))} - ${format(new Date(today.getFullYear(), today.getMonth() + 1, 0))})`;
+  if (operator === "lastMonth") return `Last Month (${format(new Date(today.getFullYear(), today.getMonth() - 1, 1))} - ${format(new Date(today.getFullYear(), today.getMonth(), 0))})`;
+  if (operator === "thisYear") return `This Year (${format(new Date(today.getFullYear(), 0, 1))} - ${format(new Date(today.getFullYear(), 11, 31))})`;
+  return relativeDateOperators.find((item) => item.value === operator)?.label || operator;
+}
+
+function formatCustomDate(value: unknown): string {
+  if (!value) return "";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replaceAll(" ", "-");
+}
 const crossFilterRelations: Record<string, string[]> = {
   Lead: ["Contact", "SiteVisit", "Opportunity", "Quotation", "Booking", "Task", "Customer"],
   Account: ["Contact", "Customer"],
@@ -257,20 +333,33 @@ export default function NewReportPage() {
   const [error, setError] = React.useState("");
   const [saveOpen, setSaveOpen] = React.useState(false);
   const [showFolderPicker, setShowFolderPicker] = React.useState(false);
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = React.useState(false);
+  const [newFolderName, setNewFolderName] = React.useState("");
+  const [newFolderUniqueName, setNewFolderUniqueName] = React.useState("");
   const [reportUniqueName, setReportUniqueName] = React.useState("");
   const [folders, setFolders] = React.useState<{ id: string; name: string }[]>([]);
   const [folderSearch, setFolderSearch] = React.useState("");
   const [selectedFolderId, setSelectedFolderId] = React.useState<string | null>(null);
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false);
   const [folderPickerSearch, setFolderPickerSearch] = React.useState("");
+  const [folderPickerCategory, setFolderPickerCategory] = React.useState<"all" | "createdByMe">("all");
+  const [pendingFolderId, setPendingFolderId] = React.useState<string | null>(null);
   const [editingReportId, setEditingReportId] = React.useState<string | null>(null);
   const editHydrated = React.useRef(false);
   const closingRef = React.useRef(false);
   const [autoPreview, setAutoPreview] = React.useState(true);
   const [filterLogic, setFilterLogic] = React.useState<"AND" | "OR">("AND");
   const [filterExpression, setFilterExpression] = React.useState("");
+  const [filterLogicDraft, setFilterLogicDraft] = React.useState("");
+  const [filterLogicError, setFilterLogicError] = React.useState("");
   const [filterLogicOpen, setFilterLogicOpen] = React.useState(false);
+  const [showMe, setShowMe] = React.useState<"all" | "mine">("all");
   const [filterActionsOpen, setFilterActionsOpen] = React.useState(false);
+  const [crossFilterEditorOpen, setCrossFilterEditorOpen] = React.useState(false);
+  const [filterEditorOpen, setFilterEditorOpen] = React.useState(false);
+  const [filterEditorIndex, setFilterEditorIndex] = React.useState<number | null>(null);
+  const [filterDraft, setFilterDraft] = React.useState<FilterRule | null>(null);
+  const [picklistValues, setPicklistValues] = React.useState<string[]>([]);
   const [rowLimitEditorOpen, setRowLimitEditorOpen] = React.useState(false);
   const [showRowCounts, setShowRowCounts] = React.useState(true);
   const [showDetailRows, setShowDetailRows] = React.useState(true);
@@ -556,6 +645,20 @@ export default function NewReportPage() {
     fields.find((field) => field.key === key)?.label || key;
   const fieldType = (key: string) => fields.find((field) => field.key === key)?.type.toLowerCase() || "string";
   const columnLabel = (key: string) => columnLabels[key] || fieldLabel(key);
+  React.useEffect(() => {
+    if (!filterEditorOpen || !filterDraft || fieldType(filterDraft.field) !== "enum") {
+      setPicklistValues([]);
+      return;
+    }
+    const params = new URLSearchParams({ objectName: selectedObject, field: filterDraft.field });
+    fetch(`/api/proxy/api/reports/field-values?${params.toString()}`, { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok || !body.success) throw new Error(body.error || "Unable to load picklist values");
+        setPicklistValues(Array.isArray(body.data) ? body.data : []);
+      })
+      .catch(() => setPicklistValues([]));
+  }, [filterEditorOpen, filterDraft?.field, selectedObject]);
   const allowedAggregations = (key: string): ColumnConfig["aggregation"][] =>
     ["number", "currency", "decimal"].includes(fieldType(key))
       ? ["none", "sum", "avg", "min", "max", "count", "uniqueCount"]
@@ -594,11 +697,28 @@ export default function NewReportPage() {
     setResult(null);
     setHasRun(false);
   };
-  const addFilter = (field = filterFieldPicker || fields[0]?.key || "") =>
-    setFilters((current) => [
-      ...current,
-      { field, operator: "equals", value: "" },
-    ]);
+  const openFilterEditor = (field: string, index: number | null = null) => {
+    const existing = index === null ? null : filters[index];
+    setFilterEditorIndex(index);
+    setFilterDraft(existing ? { ...existing } : { field, operator: fieldType(field).includes("date") ? "thisMonth" : "equals", value: "" });
+    setFilterEditorOpen(true);
+  };
+  const addFilter = (field = filterFieldPicker || fields[0]?.key || "") => {
+    if (field) openFilterEditor(field);
+  };
+  const applyFilterDraft = () => {
+    if (!filterDraft?.field) return;
+    if (filterDraft.operator === "customRange" && (typeof filterDraft.value !== "object" || !filterDraft.value.start || !filterDraft.value.end)) {
+      setError("Enter both dates before applying the custom range.");
+      return;
+    }
+    const normalizedFilter = { field: filterDraft.field, operator: filterDraft.operator, value: filterDraft.value };
+    setFilters((current) => filterEditorIndex === null ? [...current, normalizedFilter] : current.map((item, index) => index === filterEditorIndex ? normalizedFilter : item));
+    setFilterEditorOpen(false);
+    setFilterEditorIndex(null);
+    setFilterDraft(null);
+    setError("");
+  };
   const addAggregate = () =>
     setAggregates((current) => [
       ...current,
@@ -725,8 +845,9 @@ export default function NewReportPage() {
     }
   };
   const validFilters = filters.filter(
-    (filter) => filter.field && (filter.value !== "" || relativeDateOperators.some((operator) => operator.value === filter.operator)),
+    (filter) => filter.field,
   );
+  const hasGrouping = rowGroups.length > 0 || columnGroups.length > 0;
   const validAggregates = aggregates.filter(
     (aggregate) => aggregate.function === "count" || aggregate.field,
   );
@@ -768,6 +889,7 @@ export default function NewReportPage() {
           columns: selectedFields.filter((field) => !hiddenColumns.includes(field)),
           filters: validFilters,
           filterExpression: filterExpression.trim() || undefined,
+          showMe,
           crossFilter: crossFilterObject ? { objectName: crossFilterObject, mode: crossFilterMode } : null,
           filterLogic,
           groupBy: rowGroups[0] || undefined,
@@ -804,7 +926,7 @@ export default function NewReportPage() {
     if (closingRef.current || !autoPreview || !selectedObject || selectedFields.length === 0 || loading) return;
     const timer = window.setTimeout(() => void runReport(true), 250);
     return () => window.clearTimeout(timer);
-  }, [autoPreview, selectedObject, selectedFields, filters, filterLogic, filterExpression, rowGroups, columnGroups, groupDateBuckets, sortBy, sortOrder, secondarySortBy, secondarySortOrder, rowLimit, loading]);
+  }, [autoPreview, selectedObject, selectedFields, filters, filterLogic, filterExpression, showMe, rowGroups, columnGroups, groupDateBuckets, sortBy, sortOrder, secondarySortBy, secondarySortOrder, rowLimit, loading]);
 
   const saveReport = async () => {
     if (!reportName.trim()) {
@@ -906,6 +1028,33 @@ export default function NewReportPage() {
   const filteredPickerFolders = folders.filter((folder) =>
     folder.name.toLowerCase().includes(folderPickerSearch.toLowerCase()),
   );
+  const openFolderPicker = () => {
+    setPendingFolderId(selectedFolderId);
+    setFolderPickerCategory("all");
+    setFolderPickerSearch("");
+    setShowFolderPicker(true);
+  };
+  const createFolderFromPicker = async () => {
+    const name = newFolderName.trim();
+    if (!name || !newFolderUniqueName.trim()) return;
+    try {
+      const response = await fetch("/api/proxy/api/report-folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), uniqueName: newFolderUniqueName.trim() }),
+      });
+      const body = await response.json();
+      if (!response.ok || !body.success) throw new Error(body.error || "Unable to create folder");
+      const folder = body.data;
+      setFolders((current) => [...current, { id: folder.id, name: folder.name }]);
+      setPendingFolderId(folder.id);
+      setNewFolderName("");
+      setNewFolderUniqueName("");
+      setNewFolderDialogOpen(false);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create folder");
+    }
+  };
   const selectedFolderName =
     folders.find((folder) => folder.id === selectedFolderId)?.name || "Private Reports";
   const pivotColumnHeaders = result?.pivot?.columns.map((column) => ({
@@ -993,8 +1142,8 @@ export default function NewReportPage() {
 
   return (
     <div className="-m-4 flex min-h-[calc(100vh-64px)] flex-col bg-slate-50 md:-m-6">
-      <header className="border-b bg-white shadow-sm">
-        <div className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 px-5 py-3">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="flex min-h-[104px] flex-wrap items-center justify-between gap-5 px-6 py-5">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <Button variant="ghost" size="icon" asChild className="shrink-0">
               <Link href={editingReportId ? `/reports/${encodeURIComponent(editingReportId)}` : "/reports"} aria-label="Back to reports">
@@ -1002,25 +1151,25 @@ export default function NewReportPage() {
               </Link>
             </Button>
 
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex items-center gap-2 text-sm font-bold uppercase text-[#b52d2d]">
+            <div className="flex min-w-0 items-center gap-5">
+              <div className="flex items-center gap-2 text-lg font-bold uppercase text-[#b52d2d]">
                 <span>Report</span>
                 <ChevronDown className="h-3.5 w-3.5" />
               </div>
 
-              <div className="flex min-w-0 items-center gap-2">
-                <h1 className="truncate text-2xl font-semibold tracking-tight text-slate-800">
+              <div className="flex min-w-0 items-center gap-4">
+                <h1 className="truncate text-4xl font-bold tracking-tight text-slate-900">
                   {reportName || "Untitled Report"}
                 </h1>
-                <span className="shrink-0 rounded-md bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                <span className="shrink-0 rounded-xl bg-slate-200 px-4 py-2 text-base font-semibold text-slate-600">
                   {object?.name || "Select a Report Type"}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <div className="flex overflow-hidden rounded-full border border-slate-400">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+            <div className="flex overflow-hidden rounded-full border border-slate-400 px-1">
               <Button key={`undo-${historyVersion}`} variant="ghost" size="icon" aria-label="Undo" title="Undo" onClick={undoBuilderChange} disabled={historyRef.current.length === 0}><Undo2 className="h-4 w-4" /></Button>
               <Button key={`redo-${historyVersion}`} variant="ghost" size="icon" aria-label="Redo" title="Redo" className="border-l" onClick={redoBuilderChange} disabled={futureRef.current.length === 0}><Redo2 className="h-4 w-4" /></Button>
             </div>
@@ -1028,7 +1177,7 @@ export default function NewReportPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="rounded-full"
+              className="h-11 rounded-full px-5 text-base"
               onClick={() => {
                 if (editingReportId) {
                   void saveReport();
@@ -1041,7 +1190,7 @@ export default function NewReportPage() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-full"
+              className="h-11 rounded-full px-5 text-base"
               onClick={() => {
                 if (editingReportId) {
                   void saveReport();
@@ -1053,15 +1202,15 @@ export default function NewReportPage() {
             >
               Save {!editingReportId && <ChevronDown className="ml-2 h-3.5 w-3.5" />}
             </Button>
-            <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={closeReportBuilder}>Close</Button>
-            <Button type="button" size="sm" className="rounded-full bg-[#d94444] hover:bg-[#bd3636]" onClick={runAndPreviewReport} disabled={running || !selectedFields.length}><Play className="mr-2 h-4 w-4" />{running ? "Running..." : "Run"}</Button>
+            <Button type="button" variant="outline" size="sm" className="h-11 rounded-full px-5 text-base" onClick={closeReportBuilder}>Close</Button>
+            <Button type="button" size="sm" className="h-11 rounded-full bg-[#d94444] px-6 text-base hover:bg-[#bd3636]" onClick={runAndPreviewReport} disabled={running || !selectedFields.length}><Play className="mr-2 h-4 w-4" />{running ? "Running..." : "Run"}</Button>
           </div>
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="w-full shrink-0 border-b bg-white lg:w-72 lg:border-b-0 lg:border-r">
-          <div className="flex items-center justify-between border-b px-3 py-2.5">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <aside className="w-full shrink-0 border-b bg-white lg:w-[420px] lg:border-b-0 lg:border-r">
+          <div className="flex min-h-16 items-center justify-between border-b px-6 py-3">
+            <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
               Fields
             </span>
             <button
@@ -1074,19 +1223,19 @@ export default function NewReportPage() {
           </div>
           <div className="flex border-b">
             <button
-              className={`flex-1 px-4 py-3 text-sm font-medium ${panel === "outline" ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}
+              className={`flex-1 px-4 py-5 text-lg font-semibold ${panel === "outline" ? "border-b-4 border-[#b52d2d] text-slate-700" : "text-slate-500"}`}
               onClick={() => setPanel("outline")}
             >
-              Outline
+              <span className="mr-1 text-base">☷</span>Outline
             </button>
             <button
-              className={`flex-1 px-4 py-3 text-sm font-medium ${panel === "filters" ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}
+              className={`flex-1 px-4 py-5 text-lg font-semibold ${panel === "filters" ? "border-b-4 border-[#b52d2d] text-slate-700" : "text-slate-500"}`}
               onClick={() => setPanel("filters")}
             >
               <Filter className="mr-1 inline h-3.5 w-3.5" />
               Filters{" "}
               {validFilters.length > 0 && (
-                <Badge className="ml-1 h-5 px-1.5">{validFilters.length}</Badge>
+                <Badge className="ml-1 h-6 min-w-6 justify-center rounded-md bg-[#d94141] px-1.5 text-white">{validFilters.length}</Badge>
               )}
             </button>
           </div>
@@ -1331,18 +1480,32 @@ export default function NewReportPage() {
                 <button type="button" onClick={() => setFilterActionsOpen((current) => !current)} aria-label="Filter actions" className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-slate-500 text-[#b52d2d] hover:bg-slate-100">
                   <ChevronDown className={`h-4 w-4 transition-transform ${filterActionsOpen ? "rotate-180" : ""}`} />
                 </button>
-                {filterActionsOpen && <div className="absolute right-0 top-11 z-50 w-52 rounded-lg border bg-white p-1 shadow-lg">
-                  <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" onClick={() => { setFilterActionsOpen(false); setFilterLogicOpen(true); }}>Add Filter Logic</button>
-                  <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" onClick={() => { setFilterActionsOpen(false); setRowLimitEditorOpen(true); }}>Add Row Limit</button>
+                  {filterActionsOpen && <div className="absolute right-0 top-11 z-50 w-52 rounded-lg border bg-white p-1 shadow-lg">
+                    <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" onClick={() => { setFilterActionsOpen(false); setCrossFilterEditorOpen(true); }}>Add Cross Filter</button>
+                    <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" onClick={() => { setFilterActionsOpen(false); setRowLimitEditorOpen(true); }}>Add Row Limit</button>
                 </div>}
               </div>
               {rowLimitEditorOpen && (
-                <label className="mb-3 block rounded-lg border bg-slate-50 p-2 text-xs font-medium text-muted-foreground">
-                  Row Limit
+                <div className="mb-3 rounded-xl border-2 border-blue-500 bg-white p-2.5">
+                  <div className="flex items-center justify-between text-sm font-medium text-slate-600"><span>Row Limit</span><button type="button" onClick={() => { setRowLimitEditorOpen(false); setRowLimit(10000); }} aria-label="Remove row limit"><Trash2 className="h-4 w-4 text-red-500" /></button></div>
                   <input type="number" min={1} max={10000} value={rowLimit} onChange={(event) => setRowLimit(Math.max(1, Math.min(10000, Number(event.target.value) || 1)))} className="mt-1 h-9 w-full rounded border bg-white px-2 text-sm text-slate-700" aria-label="Row limit" />
-                </label>
+                </div>
               )}
-              <div ref={filterFieldPickerRef} className="relative mb-3" onMouseLeave={() => setFilterFieldPickerOpen(false)}>
+              {crossFilterEditorOpen && (
+                <div className="mb-3 rounded-lg border bg-slate-50 p-3">
+                  <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600"><span>Cross Filter</span><button type="button" onClick={() => setCrossFilterEditorOpen(false)} aria-label="Close cross filter"><X className="h-4 w-4" /></button></div>
+                  <select value={crossFilterObject} onChange={(event) => setCrossFilterObject(event.target.value)} className="mb-2 h-9 w-full rounded border bg-white px-2 text-sm">
+                    <option value="">Select a related object</option>
+                    {(crossFilterRelations[selectedObject] || []).map((relation) => <option key={relation} value={relation}>{relation}</option>)}
+                  </select>
+                  <select value={crossFilterMode} onChange={(event) => setCrossFilterMode(event.target.value as "with" | "without")} className="h-9 w-full rounded border bg-white px-2 text-sm">
+                    <option value="with">With related records</option>
+                    <option value="without">Without related records</option>
+                  </select>
+                </div>
+              )}
+              {crossFilterObject && <div className="mb-2 flex items-center justify-between rounded-xl border-2 border-slate-300 bg-white px-3 py-2.5 text-sm"><span><span className="block font-medium text-slate-500">Cross Filter</span><span className="text-[#5c211d]">{crossFilterMode === "with" ? "With" : "Without"} {crossFilterObject}</span></span><button type="button" onClick={() => { setCrossFilterObject(""); setCrossFilterEditorOpen(false); }} aria-label="Remove cross filter"><Trash2 className="h-4 w-4 text-red-500" /></button></div>}
+              <div ref={filterFieldPickerRef} className="relative mb-3">
                 <div className={`flex h-11 items-center rounded-xl border-2 bg-white ${filterFieldPickerOpen ? "border-primary ring-1 ring-primary/20" : "border-slate-300"}`}>
                   <Search className="ml-3 h-4 w-4 text-muted-foreground" />
                   <input
@@ -1356,28 +1519,26 @@ export default function NewReportPage() {
                   />
                 </div>
                 {filterFieldPickerOpen && (
-                  <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-lg">
-                    {fields.filter((field) => `${field.label} ${field.key}`.toLowerCase().includes(filterFieldPicker.toLowerCase())).map((field) => (
-                      <button
-                        key={field.key}
-                        type="button"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          addFilter(field.key);
-                          setFilterFieldPicker("");
-                          setFilterFieldPickerOpen(false);
-                        }}
-                        className="flex w-full items-center rounded px-3 py-2 text-left text-sm hover:bg-primary/10"
-                      >
-                        {field.label}
-                      </button>
-                    ))}
+                  <div className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-lg">
+                    {fields.filter((field) => `${field.label} ${field.key}`.toLowerCase().includes(filterFieldPicker.toLowerCase())).length === 0 ? <div className="px-3 py-3 text-sm text-muted-foreground">No fields found</div> : Object.entries(fields.filter((field) => `${field.label} ${field.key}`.toLowerCase().includes(filterFieldPicker.toLowerCase())).reduce<Record<string, Field[]>>((groups, field) => {
+                      const category = field.type.toLowerCase().includes("date") ? "DATE FIELDS" : field.type.toLowerCase() === "enum" ? "PICKLIST FIELDS" : "GENERAL FIELDS";
+                      (groups[category] ||= []).push(field);
+                      return groups;
+                    }, {})).map(([category, categoryFields]) => <div key={category}>
+                      <div className="px-3 py-2 text-[10px] font-bold tracking-wide text-slate-500">{category}</div>
+                      {categoryFields.map((field) => <button key={field.key} type="button" onMouseDown={(event) => { event.preventDefault(); addFilter(field.key); setFilterFieldPicker(""); setFilterFieldPickerOpen(false); }} className="flex w-full items-center rounded px-3 py-2 text-left text-sm hover:bg-primary/10">{field.label}</button>)}
+                    </div>)}
                   </div>
                 )}
               </div>
-              <label className="mb-3 block text-xs font-medium text-muted-foreground">Advanced Filter Logic
-                <input value={filterExpression} onChange={(event) => setFilterExpression(event.target.value)} placeholder="Example: (1 AND 2) OR (3 AND 4)" className="mt-1 h-9 w-full rounded border bg-white px-2 text-xs outline-none focus:border-primary" />
-              </label>
+              <div className="mb-2 rounded-xl border-2 border-slate-300 bg-white px-4 py-2.5">
+                <label className="block text-sm text-slate-500">Show Me
+                  <select value={showMe} onChange={(event) => setShowMe(event.target.value as "all" | "mine")} className="mt-0.5 block w-full appearance-none bg-transparent text-base font-medium text-[#5c211d] outline-none">
+                    <option value="all">All records</option>
+                    <option value="mine">My records</option>
+                  </select>
+                </label>
+              </div>
               {filters.length === 0 && (
                 <p className="rounded-md border border-dashed bg-slate-50 p-3 text-xs text-muted-foreground">
                   No filters. All records will be included.
@@ -1386,85 +1547,30 @@ export default function NewReportPage() {
               {filters.map((filter, index) => (
                 <div
                   key={index}
-                  className="mb-2 rounded-xl border-2 border-slate-300 bg-white p-2.5 shadow-sm"
+                  className="mb-2 cursor-pointer rounded-xl border-2 border-slate-300 bg-white p-2.5 shadow-sm transition hover:border-primary"
+                  onClick={() => openFilterEditor(filter.field, index)}
                 >
                   <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-muted-foreground">
-                    <span className="truncate text-sm font-semibold text-slate-500">{fieldLabel(filter.field)}</span>
+                    <span className="truncate text-sm font-semibold text-slate-500">{index + 1}. {fieldLabel(filter.field)}</span>
                     <button
                       type="button"
-                      onClick={() =>
-                        setFilters((current) =>
-                          current.filter((_, itemIndex) => itemIndex !== index),
-                        )
-                      }
+                      onClick={(event) => { event.stopPropagation(); setFilters((current) => current.filter((_, itemIndex) => itemIndex !== index)); setFilterExpression(""); }}
                       aria-label="Remove filter"
                     >
                       <Trash2 className="h-4 w-4 text-red-500" />
                     </button>
                   </div>
-                  <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1.5">
-                    <select
-                      value={filter.field}
-                      aria-label={`Filter ${index + 1} field`}
-                      onChange={(event) =>
-                        setFilters((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, field: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                      className="h-9 min-w-0 rounded border bg-white px-2 text-sm"
-                    >
-                      {fields.map((field) => (
-                        <option key={field.key} value={field.key}>
-                          {field.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={filter.operator}
-                      aria-label={`Filter ${index + 1} operator`}
-                      onChange={(event) =>
-                        setFilters((current) =>
-                          current.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, operator: event.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                      className="h-9 min-w-0 rounded border bg-white px-2 text-sm"
-                    >
-                      {fieldType(filter.field).includes("date") && (
-                        <optgroup label="Relative dates">
-                          {relativeDateOperators.map((operator) => <option key={operator.value} value={operator.value}>{operator.label}</option>)}
-                        </optgroup>
-                      )}
-                      <optgroup label="Comparison">
-                        {getAvailableOperators(fieldType(filter.field)).map((operator) => <option key={operator} value={operator}>{operator}</option>)}
-                      </optgroup>
-                    </select>
-                  </div>
-                  {filter.operator === "isBlank" || filter.operator === "isNotBlank" ? (
-                    <p className="mt-1.5 rounded border bg-slate-50 px-2 py-1.5 text-sm text-muted-foreground">Checks whether this field has a value.</p>
-                  ) : filter.operator === "customRange" ? (
-                    <div className="mt-1.5 grid grid-cols-2 gap-1.5"><input type="date" value={typeof filter.value === "object" ? filter.value.start : ""} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: { start: event.target.value, end: typeof item.value === "object" ? item.value.end : "" } } : item))} className="h-8 rounded border px-2 text-xs" /><input type="date" value={typeof filter.value === "object" ? filter.value.end : ""} onChange={(event) => setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: { start: typeof item.value === "object" ? item.value.start : "", end: event.target.value } } : item))} className="h-8 rounded border px-2 text-xs" /></div>
-                  ) : relativeDateOperators.some((operator) => operator.value === filter.operator) ? (
-                    <p className="mt-1.5 rounded border bg-slate-50 px-2 py-1.5 text-xs text-muted-foreground">Uses the current calendar range.</p>
-                  ) : (
-                    <input
-                      value={typeof filter.value === "object" ? "" : filter.value}
-                      onChange={(event) =>
-                        setFilters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))
-                      }
-                      placeholder="Enter a value"
-                      className="mt-1.5 h-8 w-full rounded border px-2 text-xs"
-                    />
-                  )}
+                  <div className="mt-1 text-sm font-medium text-[#5c211d]">{filter.operator === "customRange" && typeof filter.value === "object" ? `${formatCustomDate(filter.value.start)} - ${formatCustomDate(filter.value.end)}` : relativeDateOperators.some((operator) => operator.value === filter.operator) ? relativeDateSummary(filter.operator) : `${operatorLabels[filter.operator] || filter.operator}${filter.operator !== "isBlank" && filter.operator !== "isNotBlank" ? ` ${typeof filter.value === "object" ? `${filter.value.start} - ${filter.value.end}` : filter.value || ""}` : ""}`}</div>
                 </div>
               ))}
+              {filterEditorOpen && filterEditorIndex === null && filterDraft && (
+                <div className="mb-2 rounded-xl border-2 border-blue-500 bg-white px-3 py-2.5 shadow-sm">
+                  <div className="flex items-center justify-between text-sm font-medium text-slate-500">
+                    <span>{fieldLabel(filterDraft.field)}</span>
+                    <span className="text-blue-600">Editing</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </aside>
@@ -1644,10 +1750,10 @@ export default function NewReportPage() {
       </div>
       <footer className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t bg-white px-4 py-3 text-xs text-muted-foreground shadow-[0_-2px_8px_rgba(15,23,42,0.08)]">
         <div className="flex flex-wrap items-center gap-4">
-          <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Row Counts<input type="checkbox" checked={showRowCounts} onChange={(event) => setShowRowCounts(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
-          <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Detail Rows<input type="checkbox" checked={showDetailRows} onChange={(event) => setShowDetailRows(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
-          <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Subtotals<input type="checkbox" checked={showSubtotals} onChange={(event) => setShowSubtotals(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
-          <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Grand Total<input type="checkbox" checked={showGrandTotal} onChange={(event) => setShowGrandTotal(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
+          {hasGrouping && <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Row Counts<input type="checkbox" checked={showRowCounts} onChange={(event) => setShowRowCounts(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>}
+          {hasGrouping && <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Detail Rows<input type="checkbox" checked={showDetailRows} onChange={(event) => setShowDetailRows(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>}
+          {hasGrouping && <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Subtotals<input type="checkbox" checked={showSubtotals} onChange={(event) => setShowSubtotals(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>}
+          {hasGrouping && <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">Grand Total<input type="checkbox" checked={showGrandTotal} onChange={(event) => setShowGrandTotal(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>}
         </div>
         <span className="hidden lg:inline">
           {selectedFields.length} columns · {validFilters.length} filters ·{" "}
@@ -1655,6 +1761,43 @@ export default function NewReportPage() {
           {groupColumn ? ` · Columns: ${fieldLabel(groupColumn)}` : ""}
         </span>
       </footer>
+      {filterEditorOpen && filterDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h2 className="text-lg font-medium text-[#5c211d]">Filter by {fieldLabel(filterDraft.field)}</h2>
+              <button type="button" onClick={() => setFilterEditorOpen(false)} aria-label="Close filter editor"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-4 p-5">
+              <label className="block text-sm font-semibold text-slate-700">Field
+                <div className="relative mt-1"><select value={filterDraft.field} onChange={(event) => setFilterDraft({ ...filterDraft, field: event.target.value, operator: fieldType(event.target.value).includes("date") ? "thisMonth" : "equals", value: "" })} className="h-11 w-full appearance-none rounded-xl border border-slate-500 bg-white px-3 pr-10 text-sm">
+                  {fields.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
+                </select><button type="button" onClick={() => setFilterEditorOpen(false)} aria-label="Clear selected field" className="absolute right-2 top-1/2 -translate-y-1/2 text-[#b52d2d]"><X className="h-5 w-5" /></button></div>
+              </label>
+              {fieldType(filterDraft.field).includes("date") ? <>
+                <label className="block text-sm font-semibold text-slate-700">Range
+                  <select value={filterDraft.operator} onChange={(event) => setFilterDraft({ ...filterDraft, operator: event.target.value, value: event.target.value === "customRange" ? { start: "", end: "" } : "" })} className="mt-1 h-11 w-full rounded-xl border border-slate-500 bg-white px-3 text-sm">
+                    {relativeDateOperators.map((operator) => <option key={operator.value} value={operator.value}>{operator.value === "customRange" ? "Custom" : operator.label}</option>)}
+                  </select>
+                </label>
+                {filterDraft.operator === "customRange" ? <div className="space-y-3">
+                  <label className="block text-sm font-semibold text-slate-700">Start Date<input type="date" value={typeof filterDraft.value === "object" ? filterDraft.value.start : ""} onChange={(event) => setFilterDraft({ ...filterDraft, value: { start: event.target.value, end: typeof filterDraft.value === "object" ? filterDraft.value.end : "" } })} className="mt-1 h-11 w-full rounded-xl border border-slate-500 px-3 text-sm" /></label>
+                  <label className="block text-sm font-semibold text-slate-700">End Date<input type="date" value={typeof filterDraft.value === "object" ? filterDraft.value.end : ""} onChange={(event) => setFilterDraft({ ...filterDraft, value: { start: typeof filterDraft.value === "object" ? filterDraft.value.start : "", end: event.target.value } })} className="mt-1 h-11 w-full rounded-xl border border-slate-500 px-3 text-sm" /></label>
+                </div> : <div className="flex items-center gap-2 text-sm font-semibold text-slate-700"><span>{relativeDateSummary(filterDraft.operator)}</span><button type="button" onClick={() => setFilterDraft({ ...filterDraft, operator: "customRange", value: { start: "", end: "" } })} className="text-[#b52d2d]">Customize</button></div>}
+              </> : <label className="block text-sm font-semibold text-slate-700">Operator
+                <select value={filterDraft.operator} onChange={(event) => setFilterDraft({ ...filterDraft, operator: event.target.value, value: "" })} className="mt-1 h-11 w-full rounded-xl border border-slate-500 bg-white px-3 text-sm">
+                  <optgroup label="Comparison">{getAvailableOperators(fieldType(filterDraft.field)).map((operator) => <option key={operator} value={operator}>{operatorLabels[operator] || operator}</option>)}</optgroup>
+                </select>
+              </label>}
+              {!['isBlank', 'isNotBlank', ...relativeDateOperators.map((item) => item.value)].includes(filterDraft.operator) && (
+                filterDraft.operator === "customRange" ? <div className="grid grid-cols-2 gap-2"><input type="date" value={typeof filterDraft.value === "object" ? filterDraft.value.start : ""} onChange={(event) => setFilterDraft({ ...filterDraft, value: { start: event.target.value, end: typeof filterDraft.value === "object" ? filterDraft.value.end : "" } })} className="h-11 rounded-xl border border-slate-500 px-3 text-sm" /><input type="date" value={typeof filterDraft.value === "object" ? filterDraft.value.end : ""} onChange={(event) => setFilterDraft({ ...filterDraft, value: { start: typeof filterDraft.value === "object" ? filterDraft.value.start : "", end: event.target.value } })} className="h-11 rounded-xl border border-slate-500 px-3 text-sm" /></div> : fieldType(filterDraft.field) === "enum" ? <select value={typeof filterDraft.value === "object" ? "" : filterDraft.value} onChange={(event) => setFilterDraft({ ...filterDraft, value: event.target.value })} className="h-11 w-full rounded-xl border border-slate-500 bg-white px-3 text-sm"><option value="">Select a value</option>{picklistValues.map((value) => <option key={value} value={value}>{value}</option>)}</select> : <input type={fieldType(filterDraft.field).includes("number") ? "number" : fieldType(filterDraft.field).includes("date") ? "date" : "text"} value={typeof filterDraft.value === "object" ? "" : filterDraft.value} onChange={(event) => setFilterDraft({ ...filterDraft, value: event.target.value })} placeholder="Enter a value" className="h-11 w-full rounded-xl border border-slate-500 px-3 text-sm" autoFocus />
+              )}
+              {relativeDateOperators.some((operator) => operator.value === filterDraft.operator) && <div className="rounded border bg-slate-50 px-3 py-2 text-sm text-muted-foreground">The date range is calculated from today when the report runs.</div>}
+              <div className="flex justify-end gap-2 border-t bg-slate-50 pt-4"><Button type="button" variant="outline" onClick={() => setFilterEditorOpen(false)} className="rounded-full border-slate-600 text-[#b52d2d]">Cancel</Button><Button type="button" onClick={applyFilterDraft} className="rounded-full bg-[#d94141] px-6">Apply</Button></div>
+            </div>
+          </div>
+        </div>
+      )}
       {filterLogicOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-lg bg-white shadow-2xl">
@@ -1668,20 +1811,10 @@ export default function NewReportPage() {
               </button>
             </div>
             <div className="space-y-4 p-5">
-              <p className="text-sm text-muted-foreground">
-                Choose how multiple filters are combined.
-              </p>
-              <select
-                value={filterLogic}
-                onChange={(event) => setFilterLogic(event.target.value as "AND" | "OR")}
-                className="h-10 w-full rounded border bg-white px-3 text-sm"
-              >
-                <option value="AND">All filters must match (AND)</option>
-                <option value="OR">Any filter can match (OR)</option>
-              </select>
-              <div className="flex justify-end">
-                <Button onClick={() => setFilterLogicOpen(false)}>Apply</Button>
-              </div>
+              <p className="text-sm text-muted-foreground">Use filter numbers with AND, OR, NOT, and parentheses.</p>
+              <textarea value={filterLogicDraft} onChange={(event) => { setFilterLogicDraft(event.target.value); setFilterLogicError(validateFilterExpression(event.target.value, validFilters.length) || ""); }} placeholder="Example: 1 AND (2 OR 3)" className={`min-h-28 w-full rounded border px-3 py-2 text-sm outline-none ${filterLogicError ? "border-red-500" : ""}`} />
+              {filterLogicError && <p className="text-sm text-red-600">{filterLogicError}</p>}
+              <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setFilterLogicOpen(false)}>Cancel</Button><Button disabled={Boolean(filterLogicError) || !filterLogicDraft.trim()} onClick={() => { const expression = filterLogicDraft.trim(); const errorMessage = validateFilterExpression(expression, validFilters.length); if (errorMessage) { setFilterLogicError(errorMessage); return; } setFilterExpression(expression); setFilterLogic(expression.includes("OR") ? "OR" : "AND"); setFilterLogicOpen(false); }}>Apply</Button></div>
             </div>
           </div>
         </div>
@@ -1739,7 +1872,7 @@ export default function NewReportPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => setShowFolderPicker(true)}
+                    onClick={openFolderPicker}
                     className="h-12 min-w-[140px] rounded-xl border border-red-500 bg-white px-4 text-lg font-semibold text-red-600 transition hover:bg-red-50"
                   >
                     Select Folder
@@ -1751,7 +1884,7 @@ export default function NewReportPage() {
             <div className="flex items-center justify-between border-t border-slate-200 bg-[#f4f4f4] px-6 py-4">
               <button
                 type="button"
-                onClick={() => setShowFolderPicker(true)}
+                onClick={openFolderPicker}
                 className="h-12 min-w-[140px] rounded-xl border border-slate-300 bg-white px-4 text-lg font-medium text-slate-700 transition hover:bg-slate-100"
               >
                 New Folder
@@ -1780,16 +1913,16 @@ export default function NewReportPage() {
       )}
 
       {showFolderPicker && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-4xl overflow-hidden rounded-[22px] border border-slate-200 bg-[#f4f4f4] shadow-[0_25px_60px_rgba(15,23,42,0.2)]">
-            <div className="flex items-center justify-center border-b border-slate-200 px-6 py-5">
-              <h2 className="text-4xl font-semibold tracking-tight text-slate-800">Select Folder</h2>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/40 p-3 sm:p-6">
+          <div className="flex max-h-[calc(100vh-1.5rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-300 bg-[#f7f8fa] shadow-[0_24px_70px_rgba(15,23,42,0.28)] sm:max-h-[calc(100vh-3rem)]">
+            <div className="flex shrink-0 items-center justify-center border-b border-slate-300 bg-white px-6 py-5">
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-800 sm:text-3xl">Select Folder</h2>
             </div>
 
-            <div className="px-6 py-4">
-              <div className="mb-4 rounded-xl border border-slate-300 bg-white p-3">
-                <div className="flex items-center gap-3">
-                  <Search className="h-4 w-4 text-slate-500" />
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+              <div className="mx-auto mb-5 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 shadow-sm">
+                <div className="flex h-8 items-center gap-3">
+                  <Search className="h-5 w-5 shrink-0 text-slate-500" />
                   <input
                     value={folderPickerSearch}
                     onChange={(event) => setFolderPickerSearch(event.target.value)}
@@ -1799,20 +1932,17 @@ export default function NewReportPage() {
                 </div>
               </div>
 
-              <div className="grid min-h-[420px] grid-cols-[260px_minmax(0,1fr)] overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="border-r border-slate-200 bg-slate-100/70 p-2">
+              <div className="grid min-h-[420px] grid-cols-1 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm md:grid-cols-[260px_minmax(0,1fr)]">
+                <div className="border-b border-slate-300 bg-[#f1f4f8] p-2 md:border-b-0 md:border-r">
                   {[
                     { key: "all", label: "All Folders" },
                     { key: "createdByMe", label: "Created by Me" },
-                    { key: "sharedWithMe", label: "Shared with Me" },
-                    { key: "private", label: "Private Reports" },
-                    { key: "public", label: "Public Reports" },
                   ].map((tab) => (
                     <button
                       key={tab.key}
                       type="button"
-                      onClick={() => setFolderPickerSearch("")}
-                      className={`flex w-full items-center justify-between rounded-md px-4 py-3 text-left text-lg font-semibold transition ${tab.key === "all" ? "bg-white text-red-700 shadow-sm" : "text-slate-700 hover:bg-white/70"}`}
+                      onClick={() => { setFolderPickerCategory(tab.key as "all" | "createdByMe"); setFolderPickerSearch(""); }}
+                      className={`flex min-h-14 w-full items-center justify-between rounded-md px-5 py-3 text-left text-base font-semibold transition sm:text-lg ${folderPickerCategory === tab.key ? "bg-white text-red-700 shadow-sm" : "text-slate-700 hover:bg-white/70"}`}
                     >
                       <span>{tab.label}</span>
                       <span className="text-slate-400">›</span>
@@ -1820,7 +1950,7 @@ export default function NewReportPage() {
                   ))}
                 </div>
 
-                <div className="bg-white p-0">
+                <div className="min-w-0 bg-white p-0">
                   {filteredPickerFolders.length === 0 ? (
                     <div className="flex min-h-[360px] items-center justify-center text-base text-slate-500">
                       No folders found
@@ -1832,17 +1962,15 @@ export default function NewReportPage() {
                           key={folder.id}
                           type="button"
                           onClick={() => {
-                            setSelectedFolderId(folder.id);
-                            setFolderSearch(folder.name);
-                            setShowFolderPicker(false);
+                            setPendingFolderId(folder.id);
                           }}
-                          className={`flex w-full items-center justify-between px-4 py-4 text-left transition hover:bg-slate-50 ${selectedFolderId === folder.id ? "bg-blue-50/60" : ""}`}
+                          className={`flex min-h-20 w-full items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 text-left transition hover:bg-slate-50 ${pendingFolderId === folder.id ? "bg-blue-50 ring-2 ring-inset ring-blue-500" : ""}`}
                         >
                           <div className="flex items-center gap-3">
                             <div className="flex h-5 w-5 items-center justify-center rounded-sm bg-slate-200 text-[10px] text-slate-600">
                               <span>▣</span>
                             </div>
-                            <span className="text-xl font-semibold text-red-700">{folder.name}</span>
+                            <span className="truncate text-lg font-semibold text-red-700 sm:text-xl">{folder.name}</span>
                           </div>
                           <span className="text-slate-400">›</span>
                         </button>
@@ -1853,32 +1981,53 @@ export default function NewReportPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between border-t border-slate-200 bg-[#f4f4f4] px-6 py-4">
+            <div className="flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-[#f4f4f4] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
               <button
                 type="button"
-                onClick={() => setShowFolderPicker(false)}
-                className="h-12 min-w-[140px] rounded-xl border border-slate-300 bg-white px-4 text-lg font-medium text-slate-700 transition hover:bg-slate-100"
+                onClick={() => { setNewFolderName(""); setNewFolderUniqueName(""); setNewFolderDialogOpen(true); }}
+                className="h-11 rounded-xl border border-slate-300 bg-white px-5 text-base font-medium text-slate-700 transition hover:bg-slate-100 sm:min-w-[140px] sm:text-lg"
               >
                 New Folder
               </button>
 
-              <div className="flex gap-3">
+              <div className="flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowFolderPicker(false)}
-                  className="h-12 min-w-[120px] rounded-xl border border-slate-300 bg-white px-4 text-lg font-medium text-slate-700 transition hover:bg-slate-100"
+                  onClick={() => { setPendingFolderId(selectedFolderId); setShowFolderPicker(false); }}
+                  className="h-11 min-w-[110px] rounded-xl border border-slate-300 bg-white px-4 text-base font-medium text-slate-700 transition hover:bg-slate-100 sm:text-lg"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowFolderPicker(false)}
-                  className="h-12 min-w-[120px] rounded-xl bg-red-600 px-4 text-lg font-semibold text-white shadow-sm transition hover:bg-red-700"
+                  onClick={() => { setSelectedFolderId(pendingFolderId); const folder = folders.find((item) => item.id === pendingFolderId); if (folder) setFolderSearch(folder.name); setShowFolderPicker(false); }}
+                  className="h-11 min-w-[110px] rounded-xl bg-red-600 px-4 text-base font-semibold text-white shadow-sm transition hover:bg-red-700 sm:text-lg"
                 >
                   Select
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {newFolderDialogOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/45 px-4 py-6 sm:px-8">
+          <div className="relative w-full max-w-[1280px] overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_22px_60px_rgba(15,23,42,0.28)]">
+            <div className="flex items-center justify-center border-b-4 border-slate-300 px-6 py-8">
+              <h2 className="text-4xl font-medium tracking-tight text-[#092b5c]">Create folder</h2>
+            </div>
+            <form onSubmit={(event) => { event.preventDefault(); void createFolderFromPicker(); }} className="space-y-9 px-8 py-9 sm:px-12">
+              <label className="block text-2xl font-medium text-slate-800"><span className="text-[#c9004b]">*</span> Folder Label
+                <input autoFocus value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} className="mt-3 h-[72px] w-full rounded-2xl border-2 border-slate-500 px-5 text-xl outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+              </label>
+              <label className="block text-2xl font-medium text-slate-800"><span className="text-[#c9004b]">*</span> Folder Unique Name
+                <input value={newFolderUniqueName} onChange={(event) => setNewFolderUniqueName(event.target.value)} className="mt-3 h-[72px] w-full rounded-2xl border-2 border-slate-500 px-5 text-xl outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+              </label>
+              <div className="-mx-8 flex justify-end gap-4 border-t-4 border-slate-300 px-8 pb-1 pt-7 sm:-mx-12 sm:px-12">
+                <button type="button" onClick={() => setNewFolderDialogOpen(false)} className="h-16 min-w-40 rounded-full border-2 border-slate-600 bg-white px-8 text-xl font-semibold text-[#a52c2c] transition hover:bg-slate-50">Cancel</button>
+                <button type="submit" disabled={!newFolderName.trim() || !newFolderUniqueName.trim()} className="h-16 min-w-40 rounded-full bg-[#d94141] px-8 text-xl font-semibold text-white transition hover:bg-[#c83333] disabled:cursor-not-allowed disabled:opacity-50">Save</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

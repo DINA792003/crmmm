@@ -68,9 +68,7 @@ function ReportsContent() {
   const [showFolderModal, setShowFolderModal] = React.useState(false);
   const [showMoveModal, setShowMoveModal] = React.useState(false);
   const [folderName, setFolderName] = React.useState("");
-  const [folderDescription, setFolderDescription] = React.useState("");
-  const [folderType, setFolderType] = React.useState("REPORTS");
-  const [folderVisibility, setFolderVisibility] = React.useState<"PRIVATE" | "PUBLIC" | "SHARED">("PRIVATE");
+  const [folderUniqueName, setFolderUniqueName] = React.useState("");
   const [folderError, setFolderError] = React.useState("");
   const [folderSuccess, setFolderSuccess] = React.useState("");
   const [savingFolder, setSavingFolder] = React.useState(false);
@@ -199,15 +197,16 @@ function ReportsContent() {
 
   const createFolder = async () => {
     const trimmedName = folderName.trim();
-    if (!trimmedName) {
-      setFolderError("Folder Name is required.");
+    const trimmedUniqueName = folderUniqueName.trim();
+    if (!trimmedName || !trimmedUniqueName) {
+      setFolderError("Folder Label and Folder Unique Name are required.");
       return;
     }
     try {
       setSavingFolder(true);
       setFolderError("");
-      await readResponse(await fetch("/api/proxy/api/report-folders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: trimmedName, description: folderDescription.trim() || null, folderType, visibility: folderVisibility }) }));
-      setFolderName(""); setFolderDescription(""); setFolderType("REPORTS"); setFolderVisibility("PRIVATE"); setShowFolderModal(false); setFolderSuccess("Folder created successfully"); void loadFolders();
+      await readResponse(await fetch("/api/proxy/api/report-folders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: trimmedName, uniqueName: trimmedUniqueName }) }));
+      setFolderName(""); setFolderUniqueName(""); setShowFolderModal(false); setFolderSuccess("Folder created successfully"); void loadFolders();
       window.setTimeout(() => setFolderSuccess(""), 3500);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to create folder";
@@ -329,40 +328,29 @@ function ReportsContent() {
       </div>
     </Modal>}
     {showFolderModal && (
-      <Modal title="New Report Folder" onClose={() => { setShowFolderModal(false); setFolderError(""); }}>
+      <Modal title="Create folder" onClose={() => { setShowFolderModal(false); setFolderError(""); }}>
         <div className="space-y-5">
-          <Field label="Folder Name">
+          <Field label="Folder Label">
             <input
               value={folderName}
               onChange={(event) => setFolderName(event.target.value)}
               onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createFolder(); } }}
               className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-lg text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               placeholder="Sales Reports"
+              required
             />
           </Field>
 
-          <Field label="Description">
-            <textarea
-              value={folderDescription}
-              onChange={(event) => setFolderDescription(event.target.value)}
-              className="mt-2 min-h-[110px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          <Field label="Folder Unique Name">
+            <input
+              value={folderUniqueName}
+              onChange={(event) => setFolderUniqueName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createFolder(); } }}
+              className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-lg text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              placeholder="sales_reports"
+              required
             />
           </Field>
-
-          <Field label="Folder Type">
-            <select value={folderType} onChange={(event) => setFolderType(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
-              <option value="REPORTS">Reports</option>
-              <option value="TEAM">Team Reports</option>
-            </select>
-          </Field>
-
-          <label className="flex items-center gap-3 text-base font-medium text-slate-700">
-            <span>Visibility</span>
-            <select value={folderVisibility} onChange={(event) => setFolderVisibility(event.target.value as "PRIVATE" | "PUBLIC" | "SHARED")} className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-base font-normal text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
-              <option value="PRIVATE">Private</option>
-              <option value="PUBLIC">Public</option>
-            </select>
-          </label>
 
           {folderError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{folderError}</p>}
 

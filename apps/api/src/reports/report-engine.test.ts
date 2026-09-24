@@ -3,6 +3,7 @@ import {
   createCondition,
   validateFilterTree,
   validateReportRequest,
+  parseFilterExpression,
   canAccessReportForUser,
   canAccessDashboardForUser,
   canAccessReportFolderForUser,
@@ -30,6 +31,17 @@ describe('createCondition', () => {
 });
 
 describe('report validation', () => {
+  it('parses nested filter logic with current filter numbers', () => {
+    expect(parseFilterExpression('1 AND (2 OR 3)', 3)).toEqual({
+      type: 'AND',
+      conditions: [
+        { filterIndex: 0 },
+        { type: 'OR', conditions: [{ filterIndex: 1 }, { filterIndex: 2 }] },
+      ],
+    });
+    expect(() => parseFilterExpression('1 AND (2', 2)).toThrow(/parenthesis/i);
+  });
+
   it('rejects invalid field and operator combinations', () => {
     expect(() => validateReportRequest({
       tenantId: 'tenant-1',

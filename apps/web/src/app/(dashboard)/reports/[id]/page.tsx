@@ -108,6 +108,14 @@ export default function ReportDetailsPage() {
     ? (report.filters as ReportFilter[])
     : [];
   const activeFilters = filtersHydratedRef.current ? editableFilters : reportFilters;
+  const hasGrouping = Boolean(
+    report?.rowGroups?.length ||
+    report?.groupBy ||
+    report?.columnGroups?.length ||
+    report?.groupColumn ||
+    report?.config?.rowGroups?.length ||
+    report?.config?.columnGroups?.length,
+  );
   const filterFields = Array.from(new Set([
     ...availableFields.map((field) => field.key),
     ...(report?.columns || []),
@@ -696,7 +704,7 @@ export default function ReportDetailsPage() {
                         ))}
                       </tr>
                     ))}
-                    {showGrandTotal && filteredResultRows.length > 0 && (
+                    {hasGrouping && showGrandTotal && filteredResultRows.length > 0 && (
                       <tr className="border-t bg-muted/40 font-semibold">
                         <td colSpan={result.columns.length} className="px-3 py-2">Grand Total: {result.totalRows} records</td>
                       </tr>
@@ -708,10 +716,10 @@ export default function ReportDetailsPage() {
           </CardContent>
         </Card>
         <div className="sticky bottom-0 z-20 mt-auto flex w-full flex-wrap items-center gap-5 border-t bg-white px-6 py-2 text-xs text-slate-600 shadow-[0_-2px_8px_rgba(15,23,42,0.12)]">
-          <label className="flex items-center gap-2">Row Counts<input type="checkbox" checked={showRowCounts} onChange={(event) => setShowRowCounts(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
-          <label className="flex items-center gap-2">Detail Rows<input type="checkbox" checked={showDetailRows} onChange={(event) => setShowDetailRows(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
-          <label className="flex items-center gap-2">Subtotals<input type="checkbox" checked={showSubtotals} onChange={(event) => setShowSubtotals(event.target.checked)} className="h-4 w-4 accent-slate-500" /></label>
-          <label className="flex items-center gap-2">Grand Total<input type="checkbox" checked={showGrandTotal} onChange={(event) => setShowGrandTotal(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>
+          {hasGrouping && <label className="flex items-center gap-2">Row Counts<input type="checkbox" checked={showRowCounts} onChange={(event) => setShowRowCounts(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>}
+          {hasGrouping && <label className="flex items-center gap-2">Detail Rows<input type="checkbox" checked={showDetailRows} onChange={(event) => setShowDetailRows(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>}
+          {hasGrouping && <label className="flex items-center gap-2">Subtotals<input type="checkbox" checked={showSubtotals} onChange={(event) => setShowSubtotals(event.target.checked)} className="h-4 w-4 accent-slate-500" /></label>}
+          {hasGrouping && <label className="flex items-center gap-2">Grand Total<input type="checkbox" checked={showGrandTotal} onChange={(event) => setShowGrandTotal(event.target.checked)} className="h-4 w-4 accent-red-600" /></label>}
         </div>
         </>
       )}

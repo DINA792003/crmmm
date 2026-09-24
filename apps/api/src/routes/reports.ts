@@ -33,6 +33,33 @@ router.get('/metadata', authorize('Report', 'read'), async (req: AuthRequest, re
   }
 });
 
+router.get('/field-values', authorize('Report', 'read'), async (req: AuthRequest, res: Response) => {
+  try {
+    const objectName = String(req.query.objectName || '');
+    const fieldName = String(req.query.field || '');
+    const objectConfig = REPORT_OBJECTS[objectName];
+    const field = objectConfig?.fields[fieldName];
+    if (!objectConfig || !field || field.type !== 'enum') {
+      return res.status(400).json({ success: false, error: 'Invalid picklist field' });
+    }
+
+    const selectPath = (path: string): Record<string, unknown> => {
+      const parts = path.split('.');
+      let selection: Record<string, unknown> = { [parts[parts.length - 1]]: true };
+      for (let index = parts.length - 2; index >= 0; index -= 1) selection = { [parts[index]]: selection };
+      return selection;
+    };
+    const getValue = (record: any, path: string) => path.split('.').reduce((current, key) => current?.[key], record);
+    const delegate = (prisma as any)[objectConfig.model];
+    const records = await delegate.findMany({ where: { tenantId: req.user!.tenantId }, select: selectPath(field.path), take: 1000 });
+    const values = [...new Set(records.map((record: any) => getValue(record, field.path)).filter((value: unknown) => value !== null && value !== undefined && value !== ''))].sort();
+    res.json({ success: true, data: values });
+  } catch (error: any) {
+    console.error('Get report field values error:', error);
+    res.status(500).json({ success: false, error: 'Failed to load picklist values' });
+  }
+});
+
 reportMetadataRouter.get('/', authorize('Report', 'read'), async (req: AuthRequest, res: Response) => {
   try {
     const registry = await getReportMetadataRegistry(req.user!.tenantId);
@@ -56,12 +83,12 @@ reportMetadataRouter.get('/:object', authorize('Report', 'read'), async (req: Au
 
 router.post('/run', authorize('Report', 'read'), async (req: AuthRequest, res: Response) => {
   try {
-    const { objectName, columns, filters, filterExpression, crossFilter, filterLogic, aggregates, groupBy, groupColumn, rowGroups, columnGroups, groupOptions, sortBy, sortOrder, sortRules, limit } = req.body;
+    const { objectName, columns, filters, filterExpression, crossFilter, filterLogic, showMe, aggregates, groupBy, groupColumn, rowGroups, columnGroups, groupOptions, sortBy, sortOrder, sortRules, limit } = req.body;
     if (!objectName || !Array.isArray(columns) || columns.length === 0) {
       return res.status(400).json({ success: false, error: 'objectName and at least one column are required' });
     }
     const filterTree = typeof filterExpression === 'string' && filterExpression.trim() ? parseFilterExpression(filterExpression, filters?.length || 0) : undefined;
-    const data = await runReport({ tenantId: req.user!.tenantId, objectName, columns, filters, filterTree, crossFilter, filterLogic, aggregates, groupBy, groupColumn, rowGroups, columnGroups, groupOptions, sortBy, sortOrder, sortRules, limit });
+    const data = await runReport({ tenantId: req.user!.tenantId, userId: req.user!.id, objectName, columns, filters, filterTree, showMe: showMe === "mine" ? "mine" : "all", crossFilter, filterLogic, aggregates, groupBy, groupColumn, rowGroups, columnGroups, groupOptions, sortBy, sortOrder, sortRules, limit });
     res.json({ success: true, data });
   } catch (error: any) {
     console.error('Run report error:', error);
